@@ -21,9 +21,11 @@ echo "📚 Copying lib and scripts..."
 cp -r lib .amplify-hosting/compute/default/ 2>/dev/null || true
 cp -r scripts .amplify-hosting/compute/default/ 2>/dev/null || true
 
-# Copy node_modules (backend dependencies)
-echo "📦 Copying node_modules..."
-cp -r node_modules .amplify-hosting/compute/default/
+# Install only production dependencies
+echo "📦 Installing production dependencies..."
+cd .amplify-hosting/compute/default
+npm install --production --no-optional
+cd ../../..
 
 # Copy frontend build to static
 echo "🎨 Copying frontend static files..."
