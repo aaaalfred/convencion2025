@@ -9,6 +9,7 @@
     "server": "node server.js",
     "dev:full": "concurrently \"npm run server\" \"npm run dev\"",
     "build": "vite build",
+    "postbuild": "bash bin/postbuild.sh",
     "lint": "eslint .",
     "preview": "vite preview"
   },

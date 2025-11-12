@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "framework": {
+    "name": "express",
+    "version": "5.1.0"
+  },
+  "imageSettings": {
+    "sizes": [100, 200, 400, 800, 1200, 1600],
+    "domains": [],
+    "remotePatterns": [],
+    "formats": ["image/avif", "image/webp"],
+    "minimumCacheTTL": 60,
+    "dangerouslyAllowSVG": false
+  },
+  "routes": [
+    {
+      "path": "/_amplify/image",
+      "target": {
+        "kind": "ImageOptimization",
+        "cacheControl": "public, max-age=3600, immutable"
+      }
+    },
+    {
+      "path": "/assets/*.*",
+      "target": {
+        "kind": "Static",
+        "cacheControl": "public, max-age=31536000, immutable"
+      },
+      "fallback": {
+        "kind": "Compute",
+        "src": "default"
+      }
+    },
+    {
+      "path": "/*.*",
+      "target": {
+        "kind": "Static",
+        "cacheControl": "public, max-age=0, must-revalidate"
+      },
+      "fallback": {
+        "kind": "Compute",
+        "src": "default"
+      }
+    },
+    {
+      "path": "/*",
+      "target": {
+        "kind": "Compute",
+        "src": "default"
+      }
+    }
+  ],
+  "computeResources": [
+    {
+      "name": "default",
+      "runtime": "nodejs22.x",
+      "entrypoint": "server.js"
+    }
+  ]
+}
