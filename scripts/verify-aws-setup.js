@@ -10,16 +10,16 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 // Configurar AWS
 AWS.config.update({
-  region: process.env.AWS_REGION || 'us-east-1',
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.APP_AWS_REGION || 'us-east-1',
+  accessKeyId: process.env.APP_AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.APP_AWS_SECRET_ACCESS_KEY,
 });
 
 const rekognition = new AWS.Rekognition();
 const s3 = new AWS.S3();
 
 const COLLECTION_ID = process.env.REKOGNITION_COLLECTION_ID || 'herdez-usuarios-faces';
-const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'herdez-concursos';
+const BUCKET_NAME = process.env.APP_AWS_S3_BUCKET || 'herdez-concursos';
 
 async function verificar() {
   console.log('\n🔍 Verificando recursos de AWS...\n');

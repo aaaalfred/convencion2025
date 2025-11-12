@@ -61,7 +61,8 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  timezone: '-06:00' // Hora de México (CST/CDT)
 });
 
 // Verificar conexión
@@ -174,11 +175,14 @@ app.post('/api/usuarios/registro', asyncHandler(async (req, res) => {
     // 1. Indexar rostro en AWS Rekognition
     const { faceId, s3Url } = await awsRekognition.indexFace(imageBuffer, `registro-${Date.now()}.jpg`);
 
-    // 2. Insertar usuario en la base de datos
+    // 2. Insertar usuario en la base de datos con fecha de México
+    const fechaMexico = new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' });
+    const fechaRegistro = new Date(fechaMexico);
+
     const [result] = await pool.query(
-      `INSERT INTO usuarios (nombre, email, telefono, foto_registro_url, rekognition_face_id)
-       VALUES (?, ?, ?, ?, ?)`,
-      [nombre, email || null, telefono || null, s3Url, faceId]
+      `INSERT INTO usuarios (nombre, email, telefono, foto_registro_url, rekognition_face_id, fecha_registro)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [nombre, email || null, telefono || null, s3Url, faceId, fechaRegistro]
     );
 
     const usuarioId = result.insertId;
@@ -318,11 +322,14 @@ app.post('/api/concursos/:codigo/participar', asyncHandler(async (req, res) => {
       });
     }
 
-    // 5. Registrar nueva participación
+    // 5. Registrar nueva participación con fecha de México
+    const fechaMexico = new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' });
+    const fechaParticipacion = new Date(fechaMexico);
+
     await pool.query(
-      `INSERT INTO participaciones (usuario_id, concurso_id, puntos_ganados, confidence_score)
-       VALUES (?, ?, ?, ?)`,
-      [usuario.id, concurso.id, concurso.puntos_otorgados, similarity]
+      `INSERT INTO participaciones (usuario_id, concurso_id, puntos_ganados, confidence_score, fecha_participacion)
+       VALUES (?, ?, ?, ?, ?)`,
+      [usuario.id, concurso.id, concurso.puntos_otorgados, similarity, fechaParticipacion]
     );
 
     // 6. Actualizar puntos totales del usuario
@@ -418,8 +425,16 @@ app.get('/api/usuarios/perfil-sesion/:usuarioId', asyncHandler(async (req, res) 
           concurso: h.concurso,
           codigo: h.codigo,
           puntos: h.puntos,
-          fecha: h.fecha,
-          hora: new Date(h.fecha).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+          fecha: new Date(h.fecha).toLocaleDateString('es-MX', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          }),
+          hora: new Date(h.fecha).toLocaleTimeString('es-MX', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
         }))
       }
     });
@@ -521,8 +536,16 @@ app.post('/api/usuarios/perfil', asyncHandler(async (req, res) => {
           concurso: h.concurso,
           codigo: h.codigo,
           puntos: h.puntos,
-          fecha: h.fecha,
-          hora: new Date(h.fecha).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+          fecha: new Date(h.fecha).toLocaleDateString('es-MX', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          }),
+          hora: new Date(h.fecha).toLocaleTimeString('es-MX', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })
         })),
         sessionToken,
         expiresAt
@@ -827,8 +850,8 @@ async function startServer() {
     console.log(`📍 URL: http://localhost:${PORT}`);
     console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
     console.log(`💾 Base de datos: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_DATABASE}`);
-    console.log(`☁️  AWS Region: ${process.env.AWS_REGION}`);
-    console.log(`🪣  S3 Bucket: ${process.env.AWS_S3_BUCKET}`);
+    console.log(`☁️  AWS Region: ${process.env.APP_AWS_REGION}`);
+    console.log(`🪣  S3 Bucket: ${process.env.APP_AWS_S3_BUCKET}`);
     console.log(`👤 Collection: ${process.env.REKOGNITION_COLLECTION_ID}`);
     console.log('='.repeat(50));
   });

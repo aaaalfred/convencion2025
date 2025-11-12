@@ -25,9 +25,9 @@ const colors = {
 
 // Configurar AWS
 AWS.config.update({
-  region: process.env.AWS_REGION || 'us-east-1',
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.APP_AWS_REGION || 'us-east-1',
+  accessKeyId: process.env.APP_AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.APP_AWS_SECRET_ACCESS_KEY,
 });
 
 const rekognition = new AWS.Rekognition();
@@ -35,7 +35,7 @@ const s3 = new AWS.S3();
 
 // Configuración
 const COLLECTION_ID = process.env.REKOGNITION_COLLECTION_ID || 'herdez-usuarios-faces';
-const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'herdez-concursos';
+const BUCKET_NAME = process.env.APP_AWS_S3_BUCKET || 'herdez-concursos';
 
 /**
  * Verificar credenciales de AWS
@@ -43,9 +43,9 @@ const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'herdez-concursos';
 async function verificarCredenciales() {
   console.log(`\n${colors.cyan}[1/4] Verificando credenciales de AWS...${colors.reset}`);
 
-  if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+  if (!process.env.APP_AWS_ACCESS_KEY_ID || !process.env.APP_AWS_SECRET_ACCESS_KEY) {
     console.error(`${colors.red}❌ Error: Credenciales de AWS no configuradas en .env${colors.reset}`);
-    console.log(`${colors.yellow}Por favor configura AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY en el archivo .env${colors.reset}`);
+    console.log(`${colors.yellow}Por favor configura APP_AWS_ACCESS_KEY_ID y APP_AWS_SECRET_ACCESS_KEY en el archivo .env${colors.reset}`);
     process.exit(1);
   }
 
@@ -136,9 +136,9 @@ async function crearBucket() {
     };
 
     // Si no es us-east-1, agregar LocationConstraint
-    if (process.env.AWS_REGION && process.env.AWS_REGION !== 'us-east-1') {
+    if (process.env.APP_AWS_REGION && process.env.APP_AWS_REGION !== 'us-east-1') {
       params.CreateBucketConfiguration = {
-        LocationConstraint: process.env.AWS_REGION
+        LocationConstraint: process.env.APP_AWS_REGION
       };
     }
 
@@ -211,7 +211,7 @@ async function verificarSetup() {
     console.log(`  • Colección Rekognition: ${colors.cyan}${COLLECTION_ID}${colors.reset}`);
     console.log(`  • Rostros indexados: ${colors.cyan}${collectionStats.FaceCount}${colors.reset}`);
     console.log(`  • Bucket S3: ${colors.cyan}${BUCKET_NAME}${colors.reset}`);
-    console.log(`  • Región AWS: ${colors.cyan}${process.env.AWS_REGION}${colors.reset}`);
+    console.log(`  • Región AWS: ${colors.cyan}${process.env.APP_AWS_REGION}${colors.reset}`);
 
     console.log(`\n${colors.yellow}Próximos pasos:${colors.reset}`);
     console.log(`  1. Ejecutar migración SQL: ${colors.cyan}mysql -h <host> -u <user> -p recompensas < scripts/migration.sql${colors.reset}`);

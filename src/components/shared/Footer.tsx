@@ -20,7 +20,7 @@ export function Footer() {
           {/* Links */}
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
             <span className="hover:text-primary transition-colors cursor-pointer">
-              © Concursos Herdez {new Date().getFullYear()}
+              © Convención Nacional SAHUAYO {new Date().getFullYear()}
             </span>
             <a href="#" className="hover:text-primary transition-colors">
               Contacto
