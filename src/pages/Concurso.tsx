@@ -11,7 +11,7 @@ import { Loader2, Trophy, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { SessionManager } from '@/lib/session';
 
-const API_URL = 'http://localhost:3002';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
 interface ConcursoData {
   nombre: string;

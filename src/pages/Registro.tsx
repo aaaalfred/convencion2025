@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { SessionManager } from '@/lib/session';
 
-const API_URL = 'http://localhost:3002';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
 export default function Registro() {
   const navigate = useNavigate();

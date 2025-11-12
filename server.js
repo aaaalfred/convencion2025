@@ -23,8 +23,25 @@ const PORT = process.env.PORT || 3002;
 // ============================================
 
 // CORS - permitir requests desde el frontend
+const allowedOrigins = [
+  'http://localhost:8081',
+  'http://localhost:5173',
+  'https://main.d23cmb2t56fwxl.amplifyapp.com',
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8081',
+  origin: function(origin, callback) {
+    // Permitir requests sin origin (como mobile apps o Postman)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS: Origen no permitido: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 

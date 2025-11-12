@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Trophy, Medal, Award, Users, TrendingUp, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
-const API_URL = 'http://localhost:3002';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
 interface RankingUsuario {
   posicion: number;
