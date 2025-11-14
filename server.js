@@ -218,26 +218,51 @@ function asyncHandler(fn) {
 // ============================================
 
 // Servir archivos estáticos del frontend (si existen)
+console.log('='.repeat(60));
+console.log('📁 CONFIGURANDO ARCHIVOS ESTÁTICOS DEL FRONTEND');
+console.log('='.repeat(60));
+
 const staticPath = path.join(__dirname, 'dist');
+console.log(`📂 Buscando directorio: ${staticPath}`);
+
 try {
   if (existsSync(staticPath)) {
     app.use(express.static(staticPath));
+    console.log('✅ Directorio /dist encontrado');
     console.log('📁 Sirviendo archivos estáticos desde /dist');
+
+    // Verificar index.html
+    const indexPath = path.join(staticPath, 'index.html');
+    if (existsSync(indexPath)) {
+      console.log('✅ index.html encontrado');
+    } else {
+      console.warn('⚠️  index.html NO encontrado en /dist');
+    }
+  } else {
+    console.warn('⚠️  Directorio /dist NO existe');
+    console.warn('   El servidor mostrará solo la API en la ruta raíz');
   }
 } catch (err) {
-  console.warn('⚠️  No se encontró directorio /dist para archivos estáticos');
+  console.error('❌ Error al configurar archivos estáticos:');
+  console.error(`   ${err.message}`);
 }
+console.log('='.repeat(60) + '\n');
 
 // Ruta raíz
 app.get('/', (req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   if (existsSync(indexPath)) {
+    console.log('🌐 Sirviendo index.html para ruta /');
     res.sendFile(indexPath);
   } else {
+    console.log('📋 Sirviendo info de API para ruta / (index.html no encontrado)');
     res.json({
       service: 'herdez-concursos-facial',
       status: 'running',
       message: 'API Backend - Usa /health para ver el estado',
+      note: 'Frontend no encontrado en /dist - verifica el build',
+      __dirname: __dirname,
+      lookingFor: indexPath,
       endpoints: {
         health: '/health',
         registro: 'POST /api/usuarios/registro',
