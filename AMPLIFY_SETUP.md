@@ -24,7 +24,7 @@ Ve a: **Amplify Console → Tu App → Environment variables**
 ```
 DB_HOST=72.167.45.26
 DB_PORT=3306
-DB_DATABASE=recompensas
+DB_DATABASE=expo25
 DB_USERNAME=alfred
 DB_PASSWORD=aaabcde1409
 ```
@@ -108,7 +108,7 @@ El servidor ahora incluye logs detallados que muestran:
 📊 BASE DE DATOS:
 ✅ DB_HOST: 72.167.45*** (length: 13)
 ✅ DB_PORT: 3306*** (length: 4)
-✅ DB_DATABASE: recompens*** (length: 11)
+✅ DB_DATABASE: expo25*** (length: 6)
 ...
 
 ☁️  AWS:
@@ -123,10 +123,10 @@ El servidor ahora incluye logs detallados que muestran:
 🔌 INTENTANDO CONEXIÓN A BASE DE DATOS
 ============================================================
 📍 Host: 72.167.45.26:3306
-💾 Database: recompensas
+💾 Database: expo25
 👤 User: alfred
 ✅ Conexión a MySQL exitosa
-📊 Base de datos actual: recompensas
+📊 Base de datos actual: expo25
 🔢 Versión MySQL: 8.0.x
 ```
 
@@ -154,7 +154,7 @@ El servidor ahora incluye logs detallados que muestran:
 
 📊 ESTADO DE CONEXIONES:
    Base de datos: ✅ CONECTADA
-   └─ 72.167.45.26:3306/recompensas
+   └─ 72.167.45.26:3306/expo25
    AWS Rekognition: ✅ CONFIGURADO
    └─ us-east-1 | herdez-usuarios-faces
 
