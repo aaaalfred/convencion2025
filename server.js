@@ -6,6 +6,7 @@ import mysql from 'mysql2/promise';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import crypto from 'crypto';
 
 // Configurar __dirname para ES modules
@@ -16,7 +17,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3000;
 
 // ============================================
 // MIDDLEWARE
@@ -82,15 +83,20 @@ const pool = mysql.createPool({
   timezone: '-06:00' // Hora de México (CST/CDT)
 });
 
-// Verificar conexión
+// Verificar conexión (no termina el proceso si falla)
+let dbConnected = false;
 async function testConnection() {
   try {
     const connection = await pool.getConnection();
     console.log('✅ Conexión a MySQL exitosa');
     connection.release();
+    dbConnected = true;
+    return true;
   } catch (error) {
     console.error('❌ Error conectando a MySQL:', error.message);
-    process.exit(1);
+    console.warn('⚠️  Servidor iniciará sin conexión a BD. Verifica las variables de entorno.');
+    dbConnected = false;
+    return false;
   }
 }
 
@@ -131,14 +137,64 @@ function asyncHandler(fn) {
 // ENDPOINTS
 // ============================================
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
+// Servir archivos estáticos del frontend (si existen)
+const staticPath = path.join(__dirname, 'dist');
+try {
+  if (existsSync(staticPath)) {
+    app.use(express.static(staticPath));
+    console.log('📁 Sirviendo archivos estáticos desde /dist');
+  }
+} catch (err) {
+  console.warn('⚠️  No se encontró directorio /dist para archivos estáticos');
+}
+
+// Ruta raíz
+app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  if (existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.json({
+      service: 'herdez-concursos-facial',
+      status: 'running',
+      message: 'API Backend - Usa /health para ver el estado',
+      endpoints: {
+        health: '/health',
+        registro: 'POST /api/usuarios/registro',
+        participar: 'POST /api/concursos/:codigo/participar',
+        perfil: 'POST /api/usuarios/perfil',
+        ranking: 'GET /api/ranking'
+      }
+    });
+  }
+});
+
+// Health check mejorado
+app.get('/health', async (req, res) => {
+  const health = {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'herdez-concursos-facial',
-    aws: awsRekognition ? 'connected' : 'not configured'
-  });
+    port: PORT,
+    env: process.env.NODE_ENV || 'development',
+    connections: {
+      database: dbConnected ? 'connected' : 'disconnected',
+      aws: awsRekognition ? 'configured' : 'not configured'
+    },
+    environment: {
+      DB_HOST: process.env.DB_HOST ? 'set' : 'missing',
+      AWS_REGION: process.env.APP_AWS_REGION ? 'set' : 'missing',
+      AWS_CREDENTIALS: (process.env.APP_AWS_ACCESS_KEY_ID && process.env.APP_AWS_SECRET_ACCESS_KEY) ? 'set' : 'missing'
+    }
+  };
+
+  // Si nada está conectado, devolver status degraded
+  if (!dbConnected && !awsRekognition) {
+    health.status = 'degraded';
+    res.status(503).json(health);
+  } else {
+    res.status(200).json(health);
+  }
 });
 
 // ============================================
