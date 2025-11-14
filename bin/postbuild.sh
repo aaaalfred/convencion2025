@@ -51,11 +51,38 @@ fi
 echo "📋 Copying deploy manifest..."
 cp deploy-manifest.json .amplify-hosting/
 
-# Create .env file in compute if exists
-if [ -f .env ]; then
-  echo "🔐 Copying environment variables..."
-  cp .env .amplify-hosting/compute/default/
-fi
+# Generate .env file for compute runtime from Amplify environment variables
+echo ""
+echo "🔐 Generating .env file for compute runtime..."
+cat > .amplify-hosting/compute/default/.env << EOF
+# Database Configuration
+DB_HOST=${DB_HOST}
+DB_PORT=${DB_PORT}
+DB_DATABASE=${DB_DATABASE}
+DB_USERNAME=${DB_USERNAME}
+DB_PASSWORD=${DB_PASSWORD}
+
+# AWS Configuration
+APP_AWS_ACCESS_KEY_ID=${APP_AWS_ACCESS_KEY_ID}
+APP_AWS_SECRET_ACCESS_KEY=${APP_AWS_SECRET_ACCESS_KEY}
+APP_AWS_REGION=${APP_AWS_REGION}
+APP_AWS_S3_BUCKET=${APP_AWS_S3_BUCKET}
+REKOGNITION_COLLECTION_ID=${REKOGNITION_COLLECTION_ID}
+
+# Server Configuration
+NODE_ENV=${NODE_ENV}
+PORT=${PORT}
+ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
+FRONTEND_URL=${FRONTEND_URL}
+EOF
+
+echo "✅ .env file created for compute runtime"
+echo "📋 Variables configured:"
+echo "   DB_HOST: ${DB_HOST:0:10}*** (${#DB_HOST} chars)"
+echo "   DB_DATABASE: ${DB_DATABASE}"
+echo "   AWS_REGION: ${APP_AWS_REGION}"
+echo "   NODE_ENV: ${NODE_ENV}"
+echo ""
 
 echo ""
 echo "✅ Deployment preparation complete!"
