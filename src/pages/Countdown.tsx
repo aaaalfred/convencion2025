@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { apiUrl } from '@/lib/api-config';
 
 interface TimeLeft {
   days: number;
@@ -28,8 +29,6 @@ interface Resultado {
   totalPuntos: number;
   mensaje: string;
 }
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
 
 const Countdown = () => {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
@@ -90,7 +89,7 @@ const Countdown = () => {
   const cargarPregunta = async () => {
     setCargandoPregunta(true);
     try {
-      const response = await fetch(`${API_URL}/api/preguntas/random`);
+      const response = await fetch(apiUrl('/api/preguntas/random'));
       const data = await response.json();
 
       if (data.success) {
@@ -120,7 +119,7 @@ const Countdown = () => {
 
     setEnviandoRespuesta(true);
     try {
-      const response = await fetch(`${API_URL}/api/preguntas/responder`, {
+      const response = await fetch(apiUrl('/api/preguntas/responder'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

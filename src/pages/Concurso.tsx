@@ -10,8 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Trophy, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { SessionManager } from '@/lib/session';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+import { apiUrl } from '@/lib/api-config';
 
 interface ConcursoData {
   nombre: string;
@@ -37,7 +36,7 @@ export default function Concurso() {
   const fetchConcurso = async () => {
     try {
       setStep('loading');
-      const response = await fetch(`${API_URL}/api/concursos/${codigo}`);
+      const response = await fetch(apiUrl(`/api/concursos/${codigo}`));
       const data = await response.json();
 
       if (!response.ok) {
@@ -106,7 +105,7 @@ export default function Concurso() {
     setStep('validating');
 
     try {
-      const response = await fetch(`${API_URL}/api/concursos/${codigo}/participar`, {
+      const response = await fetch(apiUrl(`/api/concursos/${codigo}/participar`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

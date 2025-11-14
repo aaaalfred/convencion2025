@@ -10,8 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Trophy, Calendar, TrendingUp, User, AlertCircle, LogOut, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { SessionManager } from '@/lib/session';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+import { apiUrl } from '@/lib/api-config';
 
 interface Usuario {
   id: number;
@@ -60,7 +59,7 @@ export default function MiPerfil() {
     setStep('loading');
 
     try {
-      const response = await fetch(`${API_URL}/api/usuarios/perfil-sesion/${usuarioId}`);
+      const response = await fetch(apiUrl(`/api/usuarios/perfil-sesion/${usuarioId}`));
       const data = await response.json();
 
       if (!response.ok || !data.success) {
@@ -85,7 +84,7 @@ export default function MiPerfil() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/usuarios/perfil`, {
+      const response = await fetch(apiUrl('/api/usuarios/perfil'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

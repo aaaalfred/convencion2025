@@ -10,8 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { SessionManager } from '@/lib/session';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+import { apiUrl } from '@/lib/api-config';
 
 export default function Registro() {
   const navigate = useNavigate();
@@ -42,7 +41,7 @@ export default function Registro() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/usuarios/registro`, {
+      const response = await fetch(apiUrl('/api/usuarios/registro'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

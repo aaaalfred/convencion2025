@@ -5,8 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Trophy, Medal, Award, Users, TrendingUp, Clock } from 'lucide-react';
 import { toast } from 'sonner';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002';
+import { apiUrl } from '@/lib/api-config';
 
 interface RankingUsuario {
   posicion: number;
@@ -40,7 +39,7 @@ export default function Ranking() {
     if (!silent) setLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/ranking?limit=50`);
+      const response = await fetch(apiUrl('/api/ranking?limit=50'));
       const result = await response.json();
 
       if (result.success) {
