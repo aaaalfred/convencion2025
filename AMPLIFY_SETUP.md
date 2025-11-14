@@ -89,20 +89,100 @@ Deberías ver:
 
 ## Diagnóstico de Problemas
 
+### Ver Logs en Amplify Console
+1. Ve a **Amplify Console → Tu App**
+2. Click en **Monitoring** en el menú lateral
+3. Click en **Logs**
+4. Selecciona **Access logs** o **Build logs**
+
+### Logs Disponibles
+
+El servidor ahora incluye logs detallados que muestran:
+
+#### 1. Variables de Entorno (al inicio)
+```
+============================================================
+🔍 VERIFICANDO VARIABLES DE ENTORNO
+============================================================
+
+📊 BASE DE DATOS:
+✅ DB_HOST: 72.167.45*** (length: 13)
+✅ DB_PORT: 3306*** (length: 4)
+✅ DB_DATABASE: recompens*** (length: 11)
+...
+
+☁️  AWS:
+✅ APP_AWS_REGION: us-east-1*** (length: 9)
+✅ APP_AWS_ACCESS_KEY_ID: AKIAXXX*** (length: 20)
+...
+```
+
+#### 2. Conexión a Base de Datos
+```
+============================================================
+🔌 INTENTANDO CONEXIÓN A BASE DE DATOS
+============================================================
+📍 Host: 72.167.45.26:3306
+💾 Database: recompensas
+👤 User: alfred
+✅ Conexión a MySQL exitosa
+📊 Base de datos actual: recompensas
+🔢 Versión MySQL: 8.0.x
+```
+
+#### 3. AWS Rekognition
+```
+============================================================
+☁️  CARGANDO AWS REKOGNITION
+============================================================
+📦 Importando módulo aws-rekognition.js...
+✅ Módulo AWS Rekognition cargado exitosamente
+✅ Credenciales AWS configuradas
+📍 Region: us-east-1
+🪣  S3 Bucket: herdez-concursos
+👤 Collection ID: herdez-usuarios-faces
+```
+
+#### 4. Resumen al Iniciar
+```
+============================================================
+🚀 SERVIDOR HERDEZ CONCURSOS INICIADO
+============================================================
+📍 URL: http://localhost:3000
+🌍 Entorno: production
+⏰ Timestamp: 2025-11-14T...
+
+📊 ESTADO DE CONEXIONES:
+   Base de datos: ✅ CONECTADA
+   └─ 72.167.45.26:3306/recompensas
+   AWS Rekognition: ✅ CONFIGURADO
+   └─ us-east-1 | herdez-usuarios-faces
+
+🔗 ENDPOINTS DISPONIBLES:
+   GET  /                - Frontend o info de API
+   GET  /health          - Estado del servidor
+   ...
+
+✅ TODOS LOS SERVICIOS OPERATIVOS
+```
+
 ### Si ves "database": "disconnected"
-1. Verifica que las variables de entorno de BD estén correctas
-2. Verifica que la IP de Amplify puede conectarse a tu MySQL
-3. Revisa los logs en Amplify Console
+1. Revisa los logs de conexión a BD (sección 2 arriba)
+2. Busca el código de error (ej: `ECONNREFUSED`, `ER_ACCESS_DENIED_ERROR`)
+3. Verifica que las variables de entorno de BD estén correctas
+4. Verifica que la IP de Amplify puede conectarse a tu MySQL
 
 ### Si ves "aws": "not configured"
-1. Verifica que las credenciales AWS están configuradas
-2. Verifica que la colección de Rekognition existe
-3. Verifica que el bucket S3 existe
+1. Revisa los logs de AWS (sección 3 arriba)
+2. Verifica que las credenciales AWS están configuradas
+3. Verifica que la colección de Rekognition existe
+4. Verifica que el bucket S3 existe
 
 ### Si aún ves Error 500
-1. Ve a Amplify Console → Logs
-2. Busca errores específicos
-3. El servidor ahora NO se detiene, así que deberías ver logs detallados
+1. Ve a **Amplify Console → Monitoring → Logs**
+2. Busca errores específicos en los logs
+3. El servidor ahora NO se detiene, así que verás logs detallados
+4. Busca mensajes con ❌ para identificar problemas
 
 ## Arquitectura de Amplify
 

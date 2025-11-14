@@ -16,6 +16,49 @@ const __dirname = path.dirname(__filename);
 // Cargar variables de entorno
 dotenv.config();
 
+// ============================================
+// LOGS DE VARIABLES DE ENTORNO
+// ============================================
+console.log('\n' + '='.repeat(60));
+console.log('🔍 VERIFICANDO VARIABLES DE ENTORNO');
+console.log('='.repeat(60));
+
+// Helper para mostrar variable de forma segura
+const showVar = (name, value, showChars = 4) => {
+  if (!value) {
+    console.log(`❌ ${name}: NOT SET`);
+    return false;
+  }
+  const maskedValue = value.substring(0, showChars) + '***';
+  console.log(`✅ ${name}: ${maskedValue} (length: ${value.length})`);
+  return true;
+};
+
+// Variables de Base de Datos
+console.log('\n📊 BASE DE DATOS:');
+showVar('DB_HOST', process.env.DB_HOST, 10);
+showVar('DB_PORT', process.env.DB_PORT, 10);
+showVar('DB_DATABASE', process.env.DB_DATABASE, 10);
+showVar('DB_USERNAME', process.env.DB_USERNAME, 6);
+showVar('DB_PASSWORD', process.env.DB_PASSWORD, 2);
+
+// Variables AWS
+console.log('\n☁️  AWS:');
+showVar('APP_AWS_REGION', process.env.APP_AWS_REGION, 15);
+showVar('APP_AWS_ACCESS_KEY_ID', process.env.APP_AWS_ACCESS_KEY_ID, 8);
+showVar('APP_AWS_SECRET_ACCESS_KEY', process.env.APP_AWS_SECRET_ACCESS_KEY, 4);
+showVar('APP_AWS_S3_BUCKET', process.env.APP_AWS_S3_BUCKET, 15);
+showVar('REKOGNITION_COLLECTION_ID', process.env.REKOGNITION_COLLECTION_ID, 15);
+
+// Variables de Servidor
+console.log('\n🚀 SERVIDOR:');
+console.log(`✅ NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+console.log(`✅ PORT: ${process.env.PORT || 3000}`);
+showVar('FRONTEND_URL', process.env.FRONTEND_URL, 20);
+showVar('ADMIN_SECRET_KEY', process.env.ADMIN_SECRET_KEY, 4);
+
+console.log('='.repeat(60) + '\n');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -86,15 +129,33 @@ const pool = mysql.createPool({
 // Verificar conexión (no termina el proceso si falla)
 let dbConnected = false;
 async function testConnection() {
+  console.log('\n' + '='.repeat(60));
+  console.log('🔌 INTENTANDO CONEXIÓN A BASE DE DATOS');
+  console.log('='.repeat(60));
+  console.log(`📍 Host: ${process.env.DB_HOST}:${process.env.DB_PORT || 3306}`);
+  console.log(`💾 Database: ${process.env.DB_DATABASE}`);
+  console.log(`👤 User: ${process.env.DB_USERNAME}`);
+
   try {
     const connection = await pool.getConnection();
     console.log('✅ Conexión a MySQL exitosa');
+
+    // Verificar base de datos
+    const [rows] = await connection.query('SELECT DATABASE() as db, VERSION() as version');
+    console.log(`📊 Base de datos actual: ${rows[0].db}`);
+    console.log(`🔢 Versión MySQL: ${rows[0].version}`);
+
     connection.release();
     dbConnected = true;
+    console.log('='.repeat(60) + '\n');
     return true;
   } catch (error) {
-    console.error('❌ Error conectando a MySQL:', error.message);
+    console.error('❌ Error conectando a MySQL:');
+    console.error(`   Código: ${error.code || 'N/A'}`);
+    console.error(`   Mensaje: ${error.message}`);
+    console.error(`   Errno: ${error.errno || 'N/A'}`);
     console.warn('⚠️  Servidor iniciará sin conexión a BD. Verifica las variables de entorno.');
+    console.log('='.repeat(60) + '\n');
     dbConnected = false;
     return false;
   }
@@ -104,16 +165,35 @@ async function testConnection() {
 // IMPORTAR LIBRERÍAS AWS
 // ============================================
 
+console.log('='.repeat(60));
+console.log('☁️  CARGANDO AWS REKOGNITION');
+console.log('='.repeat(60));
+
 // Importamos las funciones de AWS Rekognition
-// (estas se crearán en el siguiente paso)
 let awsRekognition;
 try {
+  console.log('📦 Importando módulo aws-rekognition.js...');
   const module = await import('./lib/aws-rekognition.js');
   awsRekognition = module.default;
+  console.log('✅ Módulo AWS Rekognition cargado exitosamente');
+
+  // Verificar configuración de AWS
+  if (process.env.APP_AWS_ACCESS_KEY_ID && process.env.APP_AWS_SECRET_ACCESS_KEY) {
+    console.log('✅ Credenciales AWS configuradas');
+    console.log(`📍 Region: ${process.env.APP_AWS_REGION || 'us-east-1'}`);
+    console.log(`🪣  S3 Bucket: ${process.env.APP_AWS_S3_BUCKET || 'No configurado'}`);
+    console.log(`👤 Collection ID: ${process.env.REKOGNITION_COLLECTION_ID || 'No configurado'}`);
+  } else {
+    console.warn('⚠️  Credenciales AWS no configuradas');
+    awsRekognition = null;
+  }
 } catch (error) {
-  console.warn('⚠️  Librería AWS Rekognition no encontrada. Creándola...');
+  console.error('❌ Error cargando AWS Rekognition:');
+  console.error(`   ${error.message}`);
+  console.warn('⚠️  El servidor funcionará sin reconocimiento facial');
   awsRekognition = null;
 }
+console.log('='.repeat(60) + '\n');
 
 // ============================================
 // UTILIDADES
@@ -917,16 +997,47 @@ async function startServer() {
 
   // Iniciar servidor
   app.listen(PORT, () => {
-    console.log('='.repeat(50));
-    console.log('🚀 Servidor Herdez Concursos iniciado');
-    console.log('='.repeat(50));
+    console.log('\n' + '='.repeat(60));
+    console.log('🚀 SERVIDOR HERDEZ CONCURSOS INICIADO');
+    console.log('='.repeat(60));
     console.log(`📍 URL: http://localhost:${PORT}`);
     console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`💾 Base de datos: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_DATABASE}`);
-    console.log(`☁️  AWS Region: ${process.env.APP_AWS_REGION}`);
-    console.log(`🪣  S3 Bucket: ${process.env.APP_AWS_S3_BUCKET}`);
-    console.log(`👤 Collection: ${process.env.REKOGNITION_COLLECTION_ID}`);
-    console.log('='.repeat(50));
+    console.log(`⏰ Timestamp: ${new Date().toISOString()}`);
+
+    console.log('\n📊 ESTADO DE CONEXIONES:');
+    console.log(`   Base de datos: ${dbConnected ? '✅ CONECTADA' : '❌ DESCONECTADA'}`);
+    if (dbConnected) {
+      console.log(`   └─ ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_DATABASE}`);
+    }
+    console.log(`   AWS Rekognition: ${awsRekognition ? '✅ CONFIGURADO' : '❌ NO CONFIGURADO'}`);
+    if (awsRekognition) {
+      console.log(`   └─ ${process.env.APP_AWS_REGION} | ${process.env.REKOGNITION_COLLECTION_ID}`);
+    }
+
+    console.log('\n🔗 ENDPOINTS DISPONIBLES:');
+    console.log(`   GET  /                - Frontend o info de API`);
+    console.log(`   GET  /health          - Estado del servidor`);
+    console.log(`   POST /api/usuarios/registro`);
+    console.log(`   POST /api/concursos/:codigo/participar`);
+    console.log(`   GET  /api/ranking`);
+
+    if (!dbConnected || !awsRekognition) {
+      console.log('\n⚠️  ADVERTENCIAS:');
+      if (!dbConnected) {
+        console.log('   - Base de datos no disponible');
+        console.log('   - Verifica las variables de entorno de BD');
+      }
+      if (!awsRekognition) {
+        console.log('   - AWS Rekognition no disponible');
+        console.log('   - Verifica las credenciales AWS');
+      }
+      console.log('   - Servidor en modo DEGRADED');
+      console.log('   - Usa /health para más detalles');
+    } else {
+      console.log('\n✅ TODOS LOS SERVICIOS OPERATIVOS');
+    }
+
+    console.log('='.repeat(60) + '\n');
   });
 }
 
