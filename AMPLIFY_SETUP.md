@@ -211,7 +211,12 @@ Tu aplicación ahora está configurada como:
 
 ## Siguientes Pasos
 
-1. Configura las variables de entorno en Amplify
-2. Re-despliega la aplicación
+1. ✅ Configura las variables de entorno en Amplify (COMPLETADO)
+2. ✅ Re-despliega la aplicación (Haz REDEPLOY después de configurar variables)
 3. Visita `/health` para verificar conexiones
 4. Si todo está OK, prueba el registro de usuarios
+
+## IMPORTANTE: Redeploy Después de Variables
+
+Después de configurar variables de entorno en Amplify Console, SIEMPRE debes hacer
+un nuevo deploy para que se apliquen. Las variables solo se cargan durante el build.
