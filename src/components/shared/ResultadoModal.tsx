@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, AlertCircle, UserX, Trophy } from 'lucide-react';
 
-export type ResultadoTipo = 'exito' | 'ya-participaste' | 'no-registrado' | 'error';
+export type ResultadoTipo = 'exito' | 'ya-participaste' | 'no-registrado' | 'error' | 'concurso-agotado' | 'ya-ganaste';
 
 export interface ResultadoData {
   tipo: ResultadoTipo;
@@ -17,6 +17,8 @@ export interface ResultadoData {
     fecha: string;
     puntosGanados: number;
   };
+  ganador?: string;
+  fecha?: string;
 }
 
 interface ResultadoModalProps {
@@ -128,6 +130,122 @@ export function ResultadoModal({ resultado, onClose }: ResultadoModalProps) {
 
           <p className="text-sm text-gray-600">
             Solo puedes participar una vez por concurso. Busca otros concursos para seguir acumulando puntos.
+          </p>
+
+          <div className="space-y-3">
+            <Button
+              onClick={handleVerPerfil}
+              className="w-full"
+            >
+              Ver mi perfil
+            </Button>
+
+            <Button
+              onClick={handleIrInicio}
+              variant="outline"
+              className="w-full"
+            >
+              Ver otros concursos
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Variante: CONCURSO AGOTADO (Premio único ya ganado por otra persona)
+  if (resultado.tipo === 'concurso-agotado') {
+    return (
+      <Card className="max-w-md mx-auto">
+        <CardContent className="pt-12 pb-12 text-center space-y-6">
+          <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto">
+            <Trophy className="w-12 h-12 text-yellow-600" />
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-yellow-600">
+              Premio ya ganado
+            </h2>
+            <p className="text-gray-700">
+              {resultado.mensaje}
+            </p>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-yellow-800">Ganador:</span>
+              <span className="font-semibold text-yellow-900">
+                {resultado.ganador}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-yellow-800">Premio ganado:</span>
+              <span className="font-semibold text-yellow-900">
+                {resultado.puntosGanados} pts
+              </span>
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-600">
+            Este era un premio único para el participante más rápido. ¡Busca otros concursos para seguir acumulando puntos!
+          </p>
+
+          <div className="space-y-3">
+            <Button
+              onClick={handleIrInicio}
+              className="w-full"
+            >
+              Ver otros concursos
+            </Button>
+
+            <Button
+              onClick={handleVerPerfil}
+              variant="outline"
+              className="w-full"
+            >
+              Ver mi perfil
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Variante: YA GANASTE (El usuario ya ganó este premio único)
+  if (resultado.tipo === 'ya-ganaste') {
+    return (
+      <Card className="max-w-md mx-auto">
+        <CardContent className="pt-12 pb-12 text-center space-y-6">
+          <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-12 h-12 text-purple-600" />
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-purple-600">
+              ¡Ya eres el ganador!
+            </h2>
+            <p className="text-gray-700">
+              {resultado.mensaje}
+            </p>
+          </div>
+
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-purple-800">Ganador:</span>
+              <span className="font-semibold text-purple-900">
+                ¡TÚ! 🏆
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-purple-800">Premio ganado:</span>
+              <span className="font-semibold text-purple-900">
+                {resultado.puntosGanados} pts
+              </span>
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-600">
+            Ya ganaste este premio único. Busca otros concursos para seguir acumulando más puntos.
           </p>
 
           <div className="space-y-3">

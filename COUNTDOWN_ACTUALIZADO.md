@@ -1,11 +1,54 @@
+# Countdown.tsx Actualizado - Con Configuración desde BD
+
+## Instrucciones
+
+1. Reemplaza el contenido completo de `src/pages/Countdown.tsx` con el código de abajo
+2. Ejecuta el SQL en la base de datos (ver sección SQL)
+3. Reconstruye el frontend: `npm run build`
+
+---
+
+## SQL a Ejecutar Primero
+
+```bash
+mysql -h 72.167.45.26 -u alfred -p expo25
+```
+
+Luego ejecuta:
+
+```sql
+-- Crear tabla de configuración
+CREATE TABLE IF NOT EXISTS countdown_config (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  nombre VARCHAR(255) NOT NULL COMMENT 'Nombre del evento',
+  fecha_objetivo DATETIME NOT NULL COMMENT 'Fecha y hora objetivo del countdown',
+  descripcion TEXT COMMENT 'Descripción del evento',
+  activo TINYINT DEFAULT 1 COMMENT '1=activo, 0=inactivo',
+  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_modificacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) COMMENT='Configuración de countdowns para eventos';
+
+-- Insertar configuración por defecto
+INSERT INTO countdown_config (nombre, fecha_objetivo, descripcion, activo) VALUES
+('Convención Nacional Sahuayo 2025', '2025-12-01 12:00:00', 'Evento principal de la Convención Nacional Herdez', 1);
+
+-- Verificar
+SELECT * FROM countdown_config WHERE activo = 1 ORDER BY fecha_objetivo ASC LIMIT 1;
+```
+
+---
+
+## Código Completo de Countdown.tsx
+
+Reemplaza **TODO** el contenido de `src/pages/Countdown.tsx` con esto:
+
+```tsx
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/api-config';
-import { SessionManager } from '@/lib/session';
 
 interface TimeLeft {
   days: number;
@@ -40,8 +83,6 @@ interface CountdownConfig {
 }
 
 const Countdown = () => {
-  const navigate = useNavigate();
-
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
     hours: 0,
@@ -52,8 +93,6 @@ const Countdown = () => {
   const [isExpired, setIsExpired] = useState(false);
   const [countdownConfig, setCountdownConfig] = useState<CountdownConfig | null>(null);
   const [cargandoConfig, setCargandoConfig] = useState(true);
-  const [tieneSesion, setTieneSesion] = useState(false);
-  const [nombreUsuario, setNombreUsuario] = useState('');
   const [pregunta, setPregunta] = useState<Pregunta | null>(null);
   const [respuestaSeleccionada, setRespuestaSeleccionada] = useState<string | null>(null);
   const [resultado, setResultado] = useState<Resultado | null>(null);
@@ -97,31 +136,12 @@ const Countdown = () => {
     cargarConfig();
   }, []);
 
-  // Verificar sesión activa
+  // Cargar pregunta cuando termine el countdown
   useEffect(() => {
-    const verificarSesion = () => {
-      const session = SessionManager.get();
-      if (session) {
-        setTieneSesion(true);
-        setNombreUsuario(session.nombre || 'Usuario');
-      } else {
-        setTieneSesion(false);
-        setNombreUsuario('');
-      }
-    };
-
-    verificarSesion();
-    // Re-verificar cada 5 segundos por si se autentica en otra pestaña
-    const interval = setInterval(verificarSesion, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Cargar pregunta cuando termine el countdown (solo si tiene sesión)
-  useEffect(() => {
-    if (isExpired && !pregunta && !cargandoPregunta && tieneSesion) {
+    if (isExpired && !pregunta && !cargandoPregunta) {
       cargarPregunta();
     }
-  }, [isExpired, tieneSesion]);
+  }, [isExpired]);
 
   // Calcular tiempo restante
   useEffect(() => {
@@ -182,8 +202,8 @@ const Countdown = () => {
     if (!respuestaSeleccionada || !pregunta) return;
 
     // Obtener usuario de sesión (si existe)
-    const session = SessionManager.get();
-    const usuarioId = session ? session.usuarioId : null;
+    const usuarioData = localStorage.getItem('usuarioData');
+    const usuarioId = usuarioData ? JSON.parse(usuarioData).usuarioId : null;
 
     if (!usuarioId) {
       toast.error('Debes registrarte primero para ganar puntos');
@@ -307,61 +327,6 @@ const Countdown = () => {
           </p>
         </motion.div>
 
-        {/* Estado de Sesión - Siempre visible */}
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="mb-8"
-        >
-          <Card className="max-w-2xl mx-auto bg-white/95 backdrop-blur-sm shadow-xl">
-            <CardContent className="p-6">
-              {tieneSesion ? (
-                // Usuario autenticado
-                <div className="text-center">
-                  <div className="flex items-center justify-center gap-3 mb-2">
-                    <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
-                    <p className="text-lg font-semibold text-green-700">
-                      Listo para Participar
-                    </p>
-                  </div>
-                  <p className="text-gray-600">
-                    Hola, <span className="font-semibold">{nombreUsuario}</span>. Estás preparado para responder cuando inicie el evento.
-                  </p>
-                </div>
-              ) : (
-                // Usuario NO autenticado
-                <div className="text-center">
-                  <div className="flex items-center justify-center gap-3 mb-3">
-                    <div className="w-3 h-3 rounded-full bg-orange-500 animate-pulse"></div>
-                    <p className="text-lg font-semibold text-orange-700">
-                      Prepárate para Participar
-                    </p>
-                  </div>
-                  <p className="text-gray-600 mb-4">
-                    Para ganar puntos necesitas identificarte. ¡Hazlo ahora para estar listo cuando inicie!
-                  </p>
-                  <div className="flex gap-3 justify-center flex-wrap">
-                    <Button
-                      onClick={() => navigate('/registro')}
-                      className="bg-gradient-to-r from-primary to-orange-500 hover:from-primary/90 hover:to-orange-600"
-                    >
-                      Registrarme
-                    </Button>
-                    <Button
-                      onClick={() => navigate('/mi-perfil')}
-                      variant="outline"
-                      className="border-primary text-primary hover:bg-primary/10"
-                    >
-                      Ya Tengo Cuenta
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
         {!isExpired ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8">
             <TimeUnit value={timeLeft.days} label="Días" />
@@ -375,44 +340,7 @@ const Countdown = () => {
             animate={{ scale: 1 }}
             transition={{ duration: 0.5 }}
           >
-            {!tieneSesion ? (
-              <Card className="p-12 bg-gradient-to-br from-orange-600 to-red-600 border-0 shadow-2xl">
-                <div className="text-center text-white">
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ duration: 0.5 }}
-                  >
-                    <h2 className="text-4xl md:text-6xl font-bold mb-6">
-                      ¡El Evento Ha Comenzado!
-                    </h2>
-                    <p className="text-xl md:text-2xl mb-4">
-                      Pero aún no estás autenticado
-                    </p>
-                    <p className="text-lg md:text-xl mb-8 text-white/90">
-                      Otros participantes ya están respondiendo. ¡Regístrate o identifícate ahora para no perder más tiempo!
-                    </p>
-                    <div className="flex gap-4 justify-center flex-wrap">
-                      <Button
-                        onClick={() => navigate('/registro')}
-                        size="lg"
-                        className="bg-white text-orange-600 hover:bg-white/90 font-bold text-lg px-8"
-                      >
-                        Registrarme Ahora
-                      </Button>
-                      <Button
-                        onClick={() => navigate('/mi-perfil')}
-                        variant="outline"
-                        size="lg"
-                        className="border-2 border-white text-white hover:bg-white/20 font-bold text-lg px-8"
-                      >
-                        Identificarme
-                      </Button>
-                    </div>
-                  </motion.div>
-                </div>
-              </Card>
-            ) : cargandoPregunta ? (
+            {cargandoPregunta ? (
               <Card className="p-12 bg-white/10 backdrop-blur-sm border-white/20 shadow-2xl">
                 <h2 className="text-2xl md:text-3xl font-bold text-white text-center">
                   Cargando pregunta...
@@ -549,3 +477,53 @@ const Countdown = () => {
 };
 
 export default Countdown;
+```
+
+---
+
+## Cambios Principales
+
+1. **Nueva interfaz `CountdownConfig`** para tipar los datos de la API
+2. **Nuevo estado `countdownConfig`** que guarda la configuración desde BD
+3. **Nuevo estado `cargandoConfig`** para mostrar loading inicial
+4. **useEffect para cargar config** al montar el componente
+5. **useEffect del timer** ahora depende de `countdownConfig` en lugar de ejecutarse siempre
+6. **Función `formatearFecha`** para mostrar la fecha en español
+7. **Pantallas de loading** mientras carga la configuración
+8. **Fecha dinámica** tomada de `countdownConfig.fechaObjetivo`
+9. **Nombre dinámico** tomado de `countdownConfig.nombre`
+10. **Descripción dinámica** tomada de `countdownConfig.descripcion` (con fallback)
+
+---
+
+## Cómo Cambiar la Fecha del Countdown
+
+Ahora para cambiar la fecha, solo ejecuta SQL:
+
+```sql
+-- Ver configuración actual
+SELECT * FROM countdown_config WHERE activo = 1;
+
+-- Cambiar la fecha
+UPDATE countdown_config
+SET fecha_objetivo = '2025-12-15 18:00:00',
+    nombre = 'Gran Inauguración 2025',
+    descripcion = 'El evento más esperado del año'
+WHERE activo = 1;
+```
+
+NO necesitas tocar el código ni hacer rebuild del frontend.
+
+---
+
+## Para Probar
+
+1. Ejecuta el SQL arriba
+2. Copia el código completo de Countdown.tsx
+3. Reconstruye: `npm run build`
+4. Reinicia servidor: `npm run server`
+5. Abre: `http://localhost:3002/countdown`
+
+---
+
+Última actualización: 18 de Noviembre 2024

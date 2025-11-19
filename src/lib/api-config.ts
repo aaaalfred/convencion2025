@@ -26,7 +26,7 @@ const getApiUrl = (): string => {
   }
 
   // En desarrollo, usar localhost
-  return 'http://localhost:3000'; // Puerto 3000 (actualizado)
+  return 'http://localhost:3002'; // Puerto del servidor backend
 };
 
 export const API_URL = getApiUrl();

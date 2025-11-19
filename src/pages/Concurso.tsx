@@ -147,8 +147,8 @@ export default function Concurso() {
               tipo: 'ya-participaste',
               mensaje: data.mensaje,
               usuario: {
-                nombre: data.data.nombre,
-                totalPuntos: data.data.totalPuntos
+                nombre: data.data.usuario.nombre,
+                totalPuntos: data.data.usuario.totalPuntos
               },
               participacion: {
                 fecha: data.data.participacion.fecha,
@@ -156,6 +156,30 @@ export default function Concurso() {
               }
             };
             toast.info('Ya participaste en este concurso');
+            break;
+
+          case 'concurso-agotado':
+            // Premio único ya fue ganado por otra persona
+            resultadoData = {
+              tipo: 'concurso-agotado',
+              mensaje: data.mensaje,
+              ganador: data.data.ganador,
+              fecha: data.data.fecha,
+              puntosGanados: data.data.puntosGanados
+            };
+            toast.warning('Este premio ya fue ganado');
+            break;
+
+          case 'ya-ganaste':
+            // El usuario ya ganó este premio único
+            resultadoData = {
+              tipo: 'ya-ganaste',
+              mensaje: data.mensaje,
+              ganador: data.data.ganador,
+              fecha: data.data.fecha,
+              puntosGanados: data.data.puntosGanados
+            };
+            toast.info('Ya ganaste este premio');
             break;
 
           case 'no-registrado':

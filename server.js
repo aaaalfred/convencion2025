@@ -70,6 +70,8 @@ const PORT = process.env.PORT || 3000;
 const allowedOrigins = [
   'http://localhost:8081',
   'http://localhost:5173',
+  'http://localhost:3002',  // Servidor backend (para testing local de producción)
+  'http://localhost:3000',  // Puerto alternativo
   'https://main.d23cmb2t56fwxl.amplifyapp.com',
   process.env.FRONTEND_URL
 ].filter(Boolean);
@@ -431,7 +433,7 @@ app.post('/api/concursos/:codigo/participar', asyncHandler(async (req, res) => {
   try {
     // 1. Verificar que el concurso existe y está activo
     const [concursos] = await pool.query(
-      'SELECT id, nombre, puntos_otorgados FROM concursos WHERE codigo_unico = ? AND activo = 1',
+      'SELECT id, nombre, puntos_otorgados, participacion_unica FROM concursos WHERE codigo_unico = ? AND activo = 1',
       [codigo]
     );
 
@@ -475,29 +477,61 @@ app.post('/api/concursos/:codigo/participar', asyncHandler(async (req, res) => {
 
     const usuario = usuarios[0];
 
-    // 4. Verificar si ya participó en este concurso
-    const [participaciones] = await pool.query(
-      'SELECT fecha_participacion, puntos_ganados FROM participaciones WHERE usuario_id = ? AND concurso_id = ?',
-      [usuario.id, concurso.id]
-    );
+    // 4. Verificar participación según el tipo de concurso
+    if (concurso.participacion_unica === 1) {
+      // MODO PARTICIPACIÓN ÚNICA: Verificar si ALGUIEN ya ganó este concurso
+      const [participaciones] = await pool.query(
+        `SELECT p.fecha_participacion, p.puntos_ganados, u.nombre as ganador, u.id as ganador_id
+         FROM participaciones p
+         INNER JOIN usuarios u ON p.usuario_id = u.id
+         WHERE p.concurso_id = ?
+         LIMIT 1`,
+        [concurso.id]
+      );
 
-    if (participaciones.length > 0) {
-      const participacion = participaciones[0];
-      return res.status(200).json({
-        success: true,
-        tipo: 'ya-participaste',
-        mensaje: 'Ya participaste en este concurso',
-        data: {
-          usuario: {
-            nombre: usuario.nombre,
-            totalPuntos: usuario.total_puntos
-          },
-          participacion: {
+      if (participaciones.length > 0) {
+        const participacion = participaciones[0];
+        const esElMismoUsuario = participacion.ganador_id === usuario.id;
+
+        return res.status(200).json({
+          success: true,
+          tipo: esElMismoUsuario ? 'ya-ganaste' : 'concurso-agotado',
+          mensaje: esElMismoUsuario
+            ? `Ya ganaste este concurso con ${participacion.puntos_ganados} puntos`
+            : `Este concurso ya fue ganado por ${participacion.ganador}`,
+          data: {
+            ganador: participacion.ganador,
             fecha: participacion.fecha_participacion,
-            puntosGanados: participacion.puntos_ganados
+            puntosGanados: participacion.puntos_ganados,
+            esElGanador: esElMismoUsuario
           }
-        }
-      });
+        });
+      }
+    } else {
+      // MODO PARTICIPACIÓN MÚLTIPLE: Verificar si ESTE USUARIO ya participó
+      const [participaciones] = await pool.query(
+        'SELECT fecha_participacion, puntos_ganados FROM participaciones WHERE usuario_id = ? AND concurso_id = ?',
+        [usuario.id, concurso.id]
+      );
+
+      if (participaciones.length > 0) {
+        const participacion = participaciones[0];
+        return res.status(200).json({
+          success: true,
+          tipo: 'ya-participaste',
+          mensaje: 'Ya participaste en este concurso',
+          data: {
+            usuario: {
+              nombre: usuario.nombre,
+              totalPuntos: usuario.total_puntos
+            },
+            participacion: {
+              fecha: participacion.fecha_participacion,
+              puntosGanados: participacion.puntos_ganados
+            }
+          }
+        });
+      }
     }
 
     // 5. Registrar nueva participación con fecha de México
@@ -820,7 +854,39 @@ app.get('/api/ranking', asyncHandler(async (req, res) => {
 }));
 
 // ============================================
-// 6. OBTENER PREGUNTA ALEATORIA
+// 6. OBTENER CONFIGURACIÓN DEL COUNTDOWN
+// GET /api/countdown/config
+// ============================================
+app.get('/api/countdown/config', asyncHandler(async (req, res) => {
+  // Obtener la configuración activa del countdown
+  const [configs] = await pool.query(
+    `SELECT id, nombre, fecha_objetivo, descripcion
+     FROM countdown_config
+     WHERE activo = 1
+     ORDER BY fecha_objetivo ASC
+     LIMIT 1`
+  );
+
+  if (configs.length === 0) {
+    return res.status(404).json({
+      success: false,
+      error: 'No hay countdown configurado'
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      id: configs[0].id,
+      nombre: configs[0].nombre,
+      fechaObjetivo: configs[0].fecha_objetivo,
+      descripcion: configs[0].descripcion
+    }
+  });
+}));
+
+// ============================================
+// 7. OBTENER PREGUNTA ALEATORIA
 // GET /api/preguntas/random
 // ============================================
 app.get('/api/preguntas/random', asyncHandler(async (req, res) => {
@@ -871,7 +937,7 @@ app.get('/api/preguntas/random', asyncHandler(async (req, res) => {
 }));
 
 // ============================================
-// 7. RESPONDER PREGUNTA
+// 8. RESPONDER PREGUNTA
 // POST /api/preguntas/responder
 // ============================================
 app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
@@ -984,12 +1050,37 @@ app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
 // MANEJO DE ERRORES
 // ============================================
 
-// 404 - Ruta no encontrada
-app.use((req, res) => {
+// ============================================
+// SPA FALLBACK - Servir index.html para rutas no-API
+// ============================================
+
+// Catch-all para rutas no-API (404s de APIs)
+app.use('/api', (req, res) => {
   res.status(404).json({
     success: false,
-    error: 'Ruta no encontrada'
+    error: 'Endpoint de API no encontrado',
+    path: req.path
   });
+});
+
+// Catch-all: servir index.html para cualquier otra ruta
+// Esto permite que React Router maneje las rutas client-side
+app.use((req, res) => {
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+
+  if (existsSync(indexPath)) {
+    console.log(`🌐 Sirviendo index.html para ruta: ${req.path}`);
+    res.sendFile(indexPath);
+  } else {
+    // Si index.html no existe, informar
+    res.status(503).json({
+      success: false,
+      error: 'Frontend no disponible',
+      message: 'El archivo index.html no se encontró en /dist',
+      path: indexPath,
+      note: 'Verifica que el build se haya ejecutado correctamente'
+    });
+  }
 });
 
 // Manejador global de errores
