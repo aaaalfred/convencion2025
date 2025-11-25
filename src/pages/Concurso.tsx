@@ -341,7 +341,7 @@ export default function Concurso() {
               </p>
               <div className="text-sm text-muted-foreground space-y-1">
                 <p>✓ Foto capturada</p>
-                <p>⏳ Enviando a AWS Rekognition...</p>
+                <p>⏳ Enviando para reconocimiento...</p>
                 <p>⏳ Identificando usuario...</p>
                 <p>⏳ Verificando participaciones...</p>
               </div>

@@ -8,6 +8,10 @@ import Concurso from './pages/Concurso';
 import MiPerfil from './pages/MiPerfil';
 import Ranking from './pages/Ranking';
 import Countdown from './pages/Countdown';
+import AgregarAcompanante from './pages/AgregarAcompanante';
+import AvisoPrivacidad from './pages/AvisoPrivacidad';
+import ResultadosConcursos from './pages/ResultadosConcursos';
+import AuditoriaParticipantes from './pages/AuditoriaParticipantes';
 
 function App() {
   return (
@@ -19,6 +23,10 @@ function App() {
         <Route path="/mi-perfil" element={<MiPerfil />} />
         <Route path="/ranking" element={<Ranking />} />
         <Route path="/countdown" element={<Countdown />} />
+        <Route path="/agregar-acompanante" element={<AgregarAcompanante />} />
+        <Route path="/aviso-privacidad" element={<AvisoPrivacidad />} />
+        <Route path="/resultados" element={<ResultadosConcursos />} />
+        <Route path="/auditoria" element={<AuditoriaParticipantes />} />
         <Route path="*" element={<Index />} />
       </Routes>
       <Toaster position="top-center" richColors />

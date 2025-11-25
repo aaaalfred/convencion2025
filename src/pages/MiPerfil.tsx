@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, Trophy, Calendar, TrendingUp, User, AlertCircle, LogOut, Clock } from 'lucide-react';
+import { Loader2, Trophy, Calendar, TrendingUp, User, AlertCircle, LogOut, Clock, UserPlus, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { SessionManager } from '@/lib/session';
 import { apiUrl } from '@/lib/api-config';
@@ -26,7 +26,23 @@ interface Participacion {
   codigo: string;
   puntos: number;
   fecha: string;
+  ganador: string; // Nombre de quien ganó los puntos
+  esAcompanante: boolean; // true si los puntos fueron ganados por el acompañante
   hora: string;
+  tipo?: 'concurso' | 'trivia'; // Tipo de participación
+}
+
+interface Acompanante {
+  id: number;
+  nombre: string;
+  email: string | null;
+  numeroEmpleado: string;
+  sucursal: string;
+  puesto: string;
+  totalPuntos: number;
+  fotoUrl: string;
+  fechaRegistro: string;
+  fechaVinculacion: string;
 }
 
 export default function MiPerfil() {
@@ -34,6 +50,8 @@ export default function MiPerfil() {
   const [step, setStep] = useState<'checking' | 'camera' | 'loading' | 'profile' | 'not-found'>('checking');
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [historial, setHistorial] = useState<Participacion[]>([]);
+  const [acompanante, setAcompanante] = useState<Acompanante | null>(null);
+  const [loadingAcompanante, setLoadingAcompanante] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Verificar sesión al cargar la página
@@ -70,12 +88,38 @@ export default function MiPerfil() {
       setHistorial(data.data.historial || []);
       setStep('profile');
       console.log('✅ Perfil cargado con sesión (sin selfie)');
+
+      // Cargar acompañante si existe
+      await fetchAcompanante(usuarioId);
     } catch (error) {
       console.error('Error al cargar perfil con sesión:', error);
       // Sesión inválida, limpiar y pedir selfie
       SessionManager.clear();
       toast.info('Sesión expirada. Por favor identifícate de nuevo');
       setStep('camera');
+    }
+  };
+
+  // Cargar acompañante del usuario
+  const fetchAcompanante = async (usuarioId: number) => {
+    setLoadingAcompanante(true);
+
+    try {
+      const response = await fetch(apiUrl(`/api/usuarios/${usuarioId}/acompanante`));
+      const data = await response.json();
+
+      if (data.success && data.tieneAcompanante) {
+        setAcompanante(data.data);
+        console.log('✅ Acompañante cargado:', data.data.nombre);
+      } else {
+        setAcompanante(null);
+        console.log('ℹ️ No tiene acompañante registrado');
+      }
+    } catch (error) {
+      console.error('Error al cargar acompañante:', error);
+      setAcompanante(null);
+    } finally {
+      setLoadingAcompanante(false);
     }
   };
 
@@ -116,6 +160,9 @@ export default function MiPerfil() {
         setHistorial(data.data.historial || []);
         setStep('profile');
         toast.success(`¡Bienvenido ${data.data.usuario.nombre}!`);
+
+        // Cargar acompañante si existe
+        await fetchAcompanante(data.data.usuario.id);
       } else {
         throw new Error(data.error || 'Usuario no encontrado');
       }
@@ -281,6 +328,18 @@ export default function MiPerfil() {
                         <div className="text-sm opacity-90">Puntos totales</div>
                       </div>
                       <div className="text-4xl font-bold">{usuario.totalPuntos}</div>
+                      {acompanante && (
+                        <div className="mt-3 pt-3 border-t border-white/20 text-sm">
+                          <div className="flex justify-between opacity-90">
+                            <span>Tus puntos:</span>
+                            <span className="font-semibold">{usuario.totalPuntos - acompanante.totalPuntos}</span>
+                          </div>
+                          <div className="flex justify-between opacity-90 mt-1">
+                            <span>Acompañante:</span>
+                            <span className="font-semibold">+{acompanante.totalPuntos}</span>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -324,6 +383,7 @@ export default function MiPerfil() {
                           <TableHead>Concurso</TableHead>
                           <TableHead>Código</TableHead>
                           <TableHead>Fecha</TableHead>
+                          <TableHead>Ganado por</TableHead>
                           <TableHead className="text-right">Puntos</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -334,8 +394,17 @@ export default function MiPerfil() {
                               {participacion.concurso}
                             </TableCell>
                             <TableCell>
-                              <Badge variant="outline" className="text-xs">
-                                {participacion.codigo}
+                              <Badge
+                                variant={participacion.tipo === 'trivia' ? 'default' : 'outline'}
+                                className={`text-xs ${participacion.tipo === 'trivia' ? 'bg-purple-600' : ''}`}
+                              >
+                                {participacion.tipo === 'trivia' ? '🎯 TRIVIA' : participacion.codigo}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={participacion.esAcompanante ? "default" : "secondary"} className="text-xs">
+                                {participacion.esAcompanante && <Users className="w-3 h-3 mr-1" />}
+                                {participacion.ganador}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-sm text-gray-600">
@@ -365,6 +434,83 @@ export default function MiPerfil() {
                   )}
                 </CardContent>
               </Card>
+
+                {/* Sección de Acompañante */}
+                {loadingAcompanante ? (
+                  <Card>
+                    <CardContent className="pt-6 text-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">Cargando acompañante...</p>
+                    </CardContent>
+                  </Card>
+                ) : acompanante ? (
+                  <Card className="shadow-card border-purple-200">
+                    <CardHeader>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                          <Users className="w-6 h-6 text-purple-600" />
+                        </div>
+                        <div>
+                          <CardTitle>Acompañante</CardTitle>
+                          <CardDescription>
+                            Los puntos de {acompanante.nombre} suman a tu cuenta
+                          </CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Nombre</p>
+                          <p className="font-semibold">{acompanante.nombre}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Puntos acumulados</p>
+                          <p className="font-semibold text-green-600 text-xl">
+                            {acompanante.totalPuntos}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Número de empleado</p>
+                          <p className="font-semibold">{acompanante.numeroEmpleado}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Sucursal</p>
+                          <p className="font-semibold">{acompanante.sucursal}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Puesto</p>
+                          <p className="font-semibold">{acompanante.puesto}</p>
+                        </div>
+                        {acompanante.email && (
+                          <div>
+                            <p className="text-sm text-muted-foreground">Email</p>
+                            <p className="font-semibold text-sm">{acompanante.email}</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
+                        Registrado como acompañante el {new Date(acompanante.fechaVinculacion).toLocaleDateString('es-MX')}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="shadow-card">
+                    <CardContent className="pt-6 text-center">
+                      <UserPlus className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+                      <p className="text-muted-foreground mb-4">
+                        Aún no has registrado un acompañante
+                      </p>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Los puntos que gane tu acompañante sumarán automáticamente a tu cuenta
+                      </p>
+                      <Button onClick={() => navigate('/agregar-acompanante')}>
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Agregar acompañante
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Estadísticas adicionales */}
                 {historial.length > 0 && (

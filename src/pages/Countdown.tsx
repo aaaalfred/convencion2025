@@ -22,21 +22,38 @@ interface Pregunta {
   opcion_c: string;
   opcion_d: string;
   puntos: number;
+  trivia_id: number;
 }
 
 interface Resultado {
   esCorrecta: boolean;
   respuestaCorrecta: string;
   puntosGanados: number;
+  puntajeDinamico: number;
   totalPuntos: number;
   mensaje: string;
+  trivia?: {
+    id: number;
+    nombre: string;
+  };
 }
 
-interface CountdownConfig {
+interface TriviaActiva {
+  triviaId: number;
+  nombre: string;
+  descripcion?: string;
+  puntajeActual: number;
+  yaParticipo: boolean;
+}
+
+interface TriviaProxima {
   id: number;
   nombre: string;
-  fechaObjetivo: string;
   descripcion: string | null;
+  fechaInicio: string;
+  fechaFin: string;
+  puntosMaximos: number;
+  puntosMinimos: number;
 }
 
 const Countdown = () => {
@@ -50,7 +67,7 @@ const Countdown = () => {
   });
 
   const [isExpired, setIsExpired] = useState(false);
-  const [countdownConfig, setCountdownConfig] = useState<CountdownConfig | null>(null);
+  const [triviaProxima, setTriviaProxima] = useState<TriviaProxima | null>(null);
   const [cargandoConfig, setCargandoConfig] = useState(true);
   const [tieneSesion, setTieneSesion] = useState(false);
   const [nombreUsuario, setNombreUsuario] = useState('');
@@ -59,42 +76,31 @@ const Countdown = () => {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [cargandoPregunta, setCargandoPregunta] = useState(false);
   const [enviandoRespuesta, setEnviandoRespuesta] = useState(false);
+  const [triviaActiva, setTriviaActiva] = useState<TriviaActiva | null>(null);
+  const [cargandoTrivia, setCargandoTrivia] = useState(false);
+  const [puntajeTiempoReal, setPuntajeTiempoReal] = useState<number>(0);
 
-  // Cargar configuración del countdown desde la API
+  // Cargar próxima trivia desde la API
   useEffect(() => {
-    const cargarConfig = async () => {
+    const cargarTrivia = async () => {
       try {
-        const response = await fetch(apiUrl('/api/countdown/config'));
+        const response = await fetch(apiUrl('/api/trivias/proxima'));
         const data = await response.json();
 
         if (data.success) {
-          setCountdownConfig(data.data);
+          setTriviaProxima(data.data);
         } else {
-          toast.error('No se pudo cargar la configuración del countdown');
-          // Fecha por defecto si falla la carga
-          setCountdownConfig({
-            id: 0,
-            nombre: 'Evento Próximamente',
-            fechaObjetivo: '2025-12-01T12:00:00',
-            descripcion: null
-          });
+          toast.error('No hay trivias configuradas en este momento');
         }
       } catch (error) {
-        console.error('Error al cargar configuración:', error);
-        toast.error('Error al cargar la configuración');
-        // Fecha por defecto si falla la carga
-        setCountdownConfig({
-          id: 0,
-          nombre: 'Evento Próximamente',
-          fechaObjetivo: '2025-12-01T12:00:00',
-          descripcion: null
-        });
+        console.error('Error al cargar trivia:', error);
+        toast.error('Error al cargar la trivia');
       } finally {
         setCargandoConfig(false);
       }
     };
 
-    cargarConfig();
+    cargarTrivia();
   }, []);
 
   // Verificar sesión activa
@@ -116,19 +122,47 @@ const Countdown = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Cargar pregunta cuando termine el countdown (solo si tiene sesión)
+  // Cargar trivia activa cuando termine el countdown
   useEffect(() => {
-    if (isExpired && !pregunta && !cargandoPregunta && tieneSesion) {
-      cargarPregunta();
+    if (isExpired && !triviaActiva && !cargandoTrivia && tieneSesion) {
+      cargarTriviaActiva();
     }
   }, [isExpired, tieneSesion]);
 
+  // Actualizar puntaje en tiempo real mientras la trivia está activa
+  useEffect(() => {
+    if (triviaActiva && !triviaActiva.yaParticipo && !resultado) {
+      setPuntajeTiempoReal(triviaActiva.puntajeActual);
+
+      // Actualizar cada segundo
+      const interval = setInterval(async () => {
+        const session = SessionManager.get();
+        const usuarioId = session?.usuarioId;
+
+        if (usuarioId) {
+          try {
+            const response = await fetch(apiUrl(`/api/trivias/activa?usuarioId=${usuarioId}`));
+            const data = await response.json();
+
+            if (data.success) {
+              setPuntajeTiempoReal(data.data.puntajeActual);
+            }
+          } catch (error) {
+            console.error('Error actualizando puntaje:', error);
+          }
+        }
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [triviaActiva, resultado]);
+
   // Calcular tiempo restante
   useEffect(() => {
-    if (!countdownConfig) return;
+    if (!triviaProxima) return;
 
     const calculateTimeLeft = () => {
-      const targetDate = new Date(countdownConfig.fechaObjetivo);
+      const targetDate = new Date(triviaProxima.fechaInicio);
       const now = new Date();
       const difference = targetDate.getTime() - now.getTime();
 
@@ -157,12 +191,49 @@ const Countdown = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [countdownConfig]);
+  }, [triviaProxima]);
 
-  const cargarPregunta = async () => {
+  const cargarTriviaActiva = async () => {
+    setCargandoTrivia(true);
+    try {
+      const session = SessionManager.get();
+      const usuarioId = session?.usuarioId;
+
+      if (!usuarioId) {
+        toast.error('Debes autenticarte primero');
+        setCargandoTrivia(false);
+        return;
+      }
+
+      const response = await fetch(apiUrl(`/api/trivias/activa?usuarioId=${usuarioId}`));
+      const data = await response.json();
+
+      if (data.success) {
+        setTriviaActiva(data.data);
+        setPuntajeTiempoReal(data.data.puntajeActual);
+
+        // Si ya participó, mostrar mensaje
+        if (data.data.yaParticipo) {
+          toast.info(`Ya participaste en "${data.data.nombre}"`);
+        } else {
+          // Si no ha participado, cargar pregunta
+          await cargarPregunta(data.data.triviaId);
+        }
+      } else {
+        toast.error(data.error || 'No hay trivias activas en este momento');
+      }
+    } catch (error) {
+      console.error('Error al cargar trivia activa:', error);
+      toast.error('Error al cargar la trivia');
+    } finally {
+      setCargandoTrivia(false);
+    }
+  };
+
+  const cargarPregunta = async (triviaId: number) => {
     setCargandoPregunta(true);
     try {
-      const response = await fetch(apiUrl('/api/preguntas/random'));
+      const response = await fetch(apiUrl(`/api/preguntas/random?triviaId=${triviaId}`));
       const data = await response.json();
 
       if (data.success) {
@@ -179,7 +250,7 @@ const Countdown = () => {
   };
 
   const enviarRespuesta = async () => {
-    if (!respuestaSeleccionada || !pregunta) return;
+    if (!respuestaSeleccionada || !pregunta || !triviaActiva) return;
 
     // Obtener usuario de sesión (si existe)
     const session = SessionManager.get();
@@ -201,6 +272,7 @@ const Countdown = () => {
           usuarioId,
           preguntaId: pregunta.id,
           respuesta: respuestaSeleccionada,
+          triviaId: triviaActiva.triviaId,
         }),
       });
 
@@ -214,7 +286,13 @@ const Countdown = () => {
           toast.error(data.data.mensaje);
         }
       } else {
-        toast.error(data.error || 'Error al enviar respuesta');
+        // Manejar caso de "ya participó"
+        if (data.tipo === 'ya_participo') {
+          toast.warning(data.error);
+          setTriviaActiva({ ...triviaActiva, yaParticipo: true });
+        } else {
+          toast.error(data.error || 'Error al enviar respuesta');
+        }
       }
     } catch (error) {
       console.error('Error al enviar respuesta:', error);
@@ -275,12 +353,12 @@ const Countdown = () => {
     );
   }
 
-  if (!countdownConfig) {
+  if (!triviaProxima) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center">
         <Card className="p-12 bg-white/10 backdrop-blur-sm border-white/20 shadow-2xl">
           <h2 className="text-2xl md:text-3xl font-bold text-white text-center">
-            No hay countdown configurado
+            No hay trivias configuradas
           </h2>
         </Card>
       </div>
@@ -296,14 +374,28 @@ const Countdown = () => {
           transition={{ duration: 0.8 }}
           className="text-center mb-12"
         >
+          {/* Logos Herdez y Campeones SAHUAYO */}
+          <div className="mb-8 flex flex-col md:flex-row justify-center items-center gap-6 md:gap-12">
+            <img
+              src="/herdez-logo.webp"
+              alt="Herdez"
+              className="h-16 md:h-24 w-auto object-contain drop-shadow-2xl"
+            />
+            <img
+              src="/logo-campeones-sahuayo.png"
+              alt="Campeones SAHUAYO"
+              className="h-20 md:h-28 w-auto object-contain drop-shadow-2xl"
+            />
+          </div>
+
           <h1 className="text-5xl md:text-7xl font-bold text-white mb-4 drop-shadow-2xl">
-            {isExpired ? 'El evento ha comenzado!' : 'Cuenta Regresiva'}
+            {isExpired ? '¡La trivia ha comenzado!' : 'Cuenta Regresiva'}
           </h1>
           <p className="text-xl md:text-2xl text-purple-200">
-            {countdownConfig.nombre}
+            {triviaProxima.nombre}
           </p>
           <p className="text-lg md:text-xl text-purple-300 mt-2">
-            {formatearFecha(countdownConfig.fechaObjetivo)}
+            {formatearFecha(triviaProxima.fechaInicio)}
           </p>
         </motion.div>
 
@@ -412,20 +504,56 @@ const Countdown = () => {
                   </motion.div>
                 </div>
               </Card>
-            ) : cargandoPregunta ? (
+            ) : cargandoTrivia || cargandoPregunta ? (
               <Card className="p-12 bg-white/10 backdrop-blur-sm border-white/20 shadow-2xl">
                 <h2 className="text-2xl md:text-3xl font-bold text-white text-center">
-                  Cargando pregunta...
+                  {cargandoTrivia ? 'Cargando trivia...' : 'Cargando pregunta...'}
                 </h2>
+              </Card>
+            ) : triviaActiva?.yaParticipo ? (
+              <Card className="p-8 md:p-12 bg-gradient-to-br from-blue-600 to-indigo-600 border-0 shadow-2xl">
+                <div className="text-center text-white">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ duration: 0.5 }}
+                  >
+                    <h2 className="text-4xl md:text-6xl font-bold mb-6">
+                      Ya Participaste
+                    </h2>
+                    <p className="text-xl md:text-2xl mb-4">
+                      {triviaActiva.nombre}
+                    </p>
+                    <p className="text-lg md:text-xl text-white/90">
+                      Solo puedes participar una vez por trivia. ¡Espera la próxima!
+                    </p>
+                  </motion.div>
+                </div>
               </Card>
             ) : pregunta && !resultado ? (
               <Card className="bg-white/95 backdrop-blur-sm shadow-2xl max-w-3xl mx-auto">
                 <CardHeader className="bg-gradient-to-r from-primary to-orange-500 text-white rounded-t-lg">
                   <CardTitle className="text-2xl md:text-3xl text-center">
-                    ¡Responde y Gana Puntos!
+                    {triviaActiva?.nombre || '¡Responde y Gana Puntos!'}
                   </CardTitle>
                   <CardDescription className="text-white/90 text-center text-lg">
-                    {pregunta.puntos} puntos disponibles
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-center gap-2">
+                        <motion.span
+                          key={puntajeTiempoReal}
+                          initial={{ scale: 1.2, color: '#ffffff' }}
+                          animate={{ scale: 1, color: '#fcd34d' }}
+                          transition={{ duration: 0.3 }}
+                          className="text-2xl font-bold"
+                        >
+                          {puntajeTiempoReal}
+                        </motion.span>
+                        <span>puntos disponibles ahora</span>
+                      </div>
+                      <p className="text-sm text-white/70">
+                        ⏱️ Los puntos disminuyen con el tiempo. ¡Responde rápido!
+                      </p>
+                    </div>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
@@ -537,7 +665,7 @@ const Countdown = () => {
             >
               <Card className="px-8 py-4 bg-white/10 backdrop-blur-sm border-white/20">
                 <p className="text-lg text-white font-semibold">
-                  {countdownConfig.descripcion || 'Prepárate para algo increíble'}
+                  {triviaProxima.descripcion || 'Prepárate para la trivia'}
                 </p>
               </Card>
             </motion.div>

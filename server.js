@@ -124,9 +124,22 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  timezone: '-06:00' // Hora de México (CST/CDT)
+  queueLimit: 0
 });
+
+// Helper para ejecutar queries con timezone de México configurado
+async function queryWithTimezone(sql, params = []) {
+  const connection = await pool.getConnection();
+  try {
+    // Configurar timezone de México para esta conexión
+    await connection.query("SET time_zone = '-06:00'");
+    // Ejecutar query
+    const result = await connection.query(sql, params);
+    return result;
+  } finally {
+    connection.release();
+  }
+}
 
 // Verificar conexión (no termina el proceso si falla)
 let dbConnected = false;
@@ -140,12 +153,15 @@ async function testConnection() {
 
   try {
     const connection = await pool.getConnection();
+    // Configurar timezone
+    await connection.query("SET time_zone = '-06:00'");
     console.log('✅ Conexión a MySQL exitosa');
 
-    // Verificar base de datos
-    const [rows] = await connection.query('SELECT DATABASE() as db, VERSION() as version');
+    // Verificar base de datos y timezone
+    const [rows] = await connection.query('SELECT DATABASE() as db, VERSION() as version, @@session.time_zone as timezone');
     console.log(`📊 Base de datos actual: ${rows[0].db}`);
     console.log(`🔢 Versión MySQL: ${rows[0].version}`);
+    console.log(`🕐 Timezone configurado: ${rows[0].timezone}`);
 
     connection.release();
     dbConnected = true;
@@ -309,7 +325,7 @@ app.get('/health', async (req, res) => {
 // POST /api/usuarios/registro
 // ============================================
 app.post('/api/usuarios/registro', asyncHandler(async (req, res) => {
-  const { nombre, email, telefono, foto } = req.body;
+  const { nombre, email, telefono, foto, numeroEmpleado } = req.body;
 
   // Validaciones
   if (!nombre || !nombre.trim()) {
@@ -348,6 +364,42 @@ app.post('/api/usuarios/registro', asyncHandler(async (req, res) => {
     });
   }
 
+  // Validar número de empleado
+  if (!numeroEmpleado || !numeroEmpleado.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'El número de empleado es requerido'
+    });
+  }
+
+  // Buscar datos del empleado
+  const [empleados] = await pool.query(
+    'SELECT numero_empleado, sucursal, puesto FROM numeros_empleado WHERE numero_empleado = ? AND activo = 1',
+    [numeroEmpleado.trim()]
+  );
+
+  if (empleados.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Número de empleado no válido'
+    });
+  }
+
+  const empleado = empleados[0];
+
+  // Verificar si el número de empleado ya está registrado
+  const [usuarioExistente] = await pool.query(
+    'SELECT id FROM usuarios WHERE numero_empleado = ?',
+    [numeroEmpleado.trim()]
+  );
+
+  if (usuarioExistente.length > 0) {
+    return res.status(409).json({
+      success: false,
+      error: 'Este número de empleado ya está registrado'
+    });
+  }
+
   try {
     // Convertir foto base64 a buffer
     const imageBuffer = base64ToBuffer(foto);
@@ -360,9 +412,9 @@ app.post('/api/usuarios/registro', asyncHandler(async (req, res) => {
     const fechaRegistro = new Date(fechaMexico);
 
     const [result] = await pool.query(
-      `INSERT INTO usuarios (nombre, email, telefono, foto_registro_url, rekognition_face_id, fecha_registro)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [nombre, email || null, telefono || null, s3Url, faceId, fechaRegistro]
+      `INSERT INTO usuarios (nombre, email, telefono, numero_empleado, foto_registro_url, rekognition_face_id, fecha_registro)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [nombre, email || null, telefono || null, numeroEmpleado.trim(), s3Url, faceId, fechaRegistro]
     );
 
     const usuarioId = result.insertId;
@@ -378,6 +430,9 @@ app.post('/api/usuarios/registro', asyncHandler(async (req, res) => {
         usuarioId,
         nombre,
         email: email || null,
+        numeroEmpleado: empleado.numero_empleado,
+        sucursal: empleado.sucursal,
+        puesto: empleado.puesto,
         faceId,
         sessionToken,
         expiresAt
@@ -545,11 +600,30 @@ app.post('/api/concursos/:codigo/participar', asyncHandler(async (req, res) => {
     );
 
     // 6. Actualizar puntos totales del usuario
-    const nuevoTotal = usuario.total_puntos + concurso.puntos_otorgados;
+    const nuevoTotal = parseInt(usuario.total_puntos) + parseInt(concurso.puntos_otorgados);
     await pool.query(
       'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
       [nuevoTotal, usuario.id]
     );
+
+    // Si el usuario es acompañante, también actualizar puntos del usuario principal
+    const [esAcompanante] = await pool.query(
+      `SELECT a.usuario_principal_id, u.nombre as nombre_principal, u.total_puntos as puntos_principal
+       FROM acompanantes a
+       INNER JOIN usuarios u ON a.usuario_principal_id = u.id
+       WHERE a.usuario_acompanante_id = ?`,
+      [usuario.id]
+    );
+
+    if (esAcompanante.length > 0) {
+      const principal = esAcompanante[0];
+      const nuevoTotalPrincipal = principal.puntos_principal + concurso.puntos_otorgados;
+      await pool.query(
+        'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
+        [nuevoTotalPrincipal, principal.usuario_principal_id]
+      );
+      console.log(`✅ Puntos del acompañante sumados al principal: ${principal.nombre_principal}`);
+    }
 
     // 7. Respuesta exitosa
     res.status(200).json({
@@ -605,20 +679,60 @@ app.get('/api/usuarios/perfil-sesion/:usuarioId', asyncHandler(async (req, res) 
 
     const usuario = usuarios[0];
 
-    // 2. Obtener historial de participaciones
-    const [historial] = await pool.query(
+    // 2. Verificar si el usuario tiene acompañante
+    const [acompanante] = await pool.query(
+      `SELECT u.id, u.nombre
+       FROM acompanantes a
+       INNER JOIN usuarios u ON a.usuario_acompanante_id = u.id
+       WHERE a.usuario_principal_id = ? AND u.activo = 1`,
+      [usuario.id]
+    );
+
+    // 3. Obtener historial de participaciones (del usuario principal y del acompañante si existe)
+    let usuariosIds = [usuario.id];
+    if (acompanante.length > 0) {
+      usuariosIds.push(acompanante[0].id);
+    }
+
+    // Query para concursos
+    const [historialConcursos] = await pool.query(
       `SELECT
         p.id,
+        p.usuario_id,
+        u.nombre as nombre_participante,
         c.nombre as concurso,
         c.codigo_unico as codigo,
         p.puntos_ganados as puntos,
         p.fecha_participacion as fecha,
-        p.confidence_score as confidence
+        'concurso' as tipo
        FROM participaciones p
        INNER JOIN concursos c ON p.concurso_id = c.id
-       WHERE p.usuario_id = ?
-       ORDER BY p.fecha_participacion DESC`,
-      [usuario.id]
+       INNER JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.usuario_id IN (?)`,
+      [usuariosIds]
+    );
+
+    // Query para trivias
+    const [historialTrivias] = await pool.query(
+      `SELECT
+        r.id,
+        r.usuario_id,
+        u.nombre as nombre_participante,
+        t.nombre as concurso,
+        CONCAT('TRIVIA-', t.id) as codigo,
+        r.puntos_ganados as puntos,
+        r.fecha_respuesta as fecha,
+        'trivia' as tipo
+       FROM respuestas_usuarios r
+       INNER JOIN trivias t ON r.trivia_id = t.id
+       INNER JOIN usuarios u ON r.usuario_id = u.id
+       WHERE r.usuario_id IN (?) AND r.es_correcta = 1`,
+      [usuariosIds]
+    );
+
+    // Combinar y ordenar por fecha
+    const historial = [...historialConcursos, ...historialTrivias].sort((a, b) =>
+      new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
     );
 
     res.status(200).json({
@@ -646,7 +760,10 @@ app.get('/api/usuarios/perfil-sesion/:usuarioId', asyncHandler(async (req, res) 
             hour: '2-digit',
             minute: '2-digit',
             hour12: true
-          })
+          }),
+          ganador: h.nombre_participante,
+          esAcompanante: h.usuario_id !== usuario.id,
+          tipo: h.tipo
         }))
       }
     });
@@ -712,23 +829,64 @@ app.post('/api/usuarios/perfil', asyncHandler(async (req, res) => {
 
     const usuario = usuarios[0];
 
-    // 3. Obtener historial de participaciones
-    const [historial] = await pool.query(
+    // 3. Verificar si el usuario tiene acompañante
+    const [acompanante] = await pool.query(
+      `SELECT u.id, u.nombre
+       FROM acompanantes a
+       INNER JOIN usuarios u ON a.usuario_acompanante_id = u.id
+       WHERE a.usuario_principal_id = ? AND u.activo = 1`,
+      [usuario.id]
+    );
+
+    // 4. Obtener historial de participaciones (del usuario principal y del acompañante si existe)
+    let usuariosIds = [usuario.id];
+    if (acompanante.length > 0) {
+      usuariosIds.push(acompanante[0].id);
+    }
+
+    // Query para concursos
+    const [historialConcursos] = await pool.query(
       `SELECT
         p.id,
+        p.usuario_id,
+        u.nombre as nombre_participante,
         c.nombre as concurso,
         c.codigo_unico as codigo,
         p.puntos_ganados as puntos,
         p.fecha_participacion as fecha,
-        p.confidence_score as confidence
+        'concurso' as tipo
        FROM participaciones p
        INNER JOIN concursos c ON p.concurso_id = c.id
-       WHERE p.usuario_id = ?
-       ORDER BY p.fecha_participacion DESC`,
-      [usuario.id]
+       INNER JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.usuario_id IN (?)`,
+      [usuariosIds]
     );
 
-    // 4. Generar token de sesión para futuras consultas
+    // Query para trivias
+    const [historialTrivias] = await pool.query(
+      `SELECT
+        r.id,
+        r.usuario_id,
+        u.nombre as nombre_participante,
+        t.nombre as concurso,
+        CONCAT('TRIVIA-', t.id) as codigo,
+        r.puntos_ganados as puntos,
+        r.fecha_respuesta as fecha,
+        'trivia' as tipo
+       FROM respuestas_usuarios r
+       INNER JOIN trivias t ON r.trivia_id = t.id
+       INNER JOIN usuarios u ON r.usuario_id = u.id
+       WHERE r.usuario_id IN (?) AND r.es_correcta = 1`,
+      [usuariosIds]
+    );
+
+    // Combinar y ordenar por fecha
+    const historial = [...historialConcursos, ...historialTrivias].sort((a, b) =>
+      new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+    );
+
+    // Placeholder para mantener compatibilidad
+
     const sessionToken = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -757,7 +915,10 @@ app.post('/api/usuarios/perfil', asyncHandler(async (req, res) => {
             hour: '2-digit',
             minute: '2-digit',
             hour12: true
-          })
+          }),
+          ganador: h.nombre_participante,
+          esAcompanante: h.usuario_id !== usuario.id,
+          tipo: h.tipo
         })),
         sessionToken,
         expiresAt
@@ -795,6 +956,316 @@ app.get('/api/concursos/:codigo', asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: concursos[0]
+  });
+}));
+
+// ============================================
+// 4.1 LISTAR TODOS LOS CONCURSOS
+// GET /api/concursos
+// ============================================
+app.get('/api/concursos', asyncHandler(async (req, res) => {
+  const [concursos] = await pool.query(
+    `SELECT
+      c.id,
+      c.nombre,
+      c.codigo_unico as codigo,
+      c.descripcion,
+      c.puntos_otorgados,
+      c.participacion_unica,
+      c.activo,
+      c.fecha_creacion,
+      COUNT(p.id) as total_participaciones,
+      SUM(p.puntos_ganados) as puntos_totales_otorgados
+     FROM concursos c
+     LEFT JOIN participaciones p ON c.id = p.concurso_id
+     GROUP BY c.id
+     ORDER BY c.fecha_creacion DESC`
+  );
+
+  res.json({
+    success: true,
+    data: concursos
+  });
+}));
+
+// ============================================
+// 4.2 PARTICIPANTES DE UN CONCURSO
+// GET /api/concursos/:id/participantes
+// ============================================
+app.get('/api/concursos/:id/participantes', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const [concursos] = await pool.query(
+    'SELECT id, nombre, codigo_unico, puntos_otorgados, participacion_unica FROM concursos WHERE id = ?',
+    [id]
+  );
+
+  if (concursos.length === 0) {
+    return res.status(404).json({
+      success: false,
+      error: 'Concurso no encontrado'
+    });
+  }
+
+  const concurso = concursos[0];
+
+  const [participantes] = await pool.query(
+    `SELECT
+      p.id, p.usuario_id, u.nombre, u.email, p.puntos_ganados, p.fecha_participacion
+     FROM participaciones p
+     INNER JOIN usuarios u ON p.usuario_id = u.id
+     WHERE p.concurso_id = ?
+     ORDER BY p.fecha_participacion ASC`,
+    [id]
+  );
+
+  res.json({
+    success: true,
+    data: {
+      concurso: {
+        id: concurso.id,
+        nombre: concurso.nombre,
+        codigo: concurso.codigo_unico,
+        puntosOtorgados: concurso.puntos_otorgados,
+        participacionUnica: concurso.participacion_unica === 1
+      },
+      participantes: participantes.map((p, index) => ({
+        posicion: index + 1,
+        id: p.id,
+        usuarioId: p.usuario_id,
+        nombre: p.nombre,
+        puntos: parseInt(p.puntos_ganados),
+        fecha: new Date(p.fecha_participacion).toLocaleDateString('es-MX', {
+          year: 'numeric', month: 'short', day: 'numeric'
+        }),
+        hora: new Date(p.fecha_participacion).toLocaleTimeString('es-MX', {
+          hour: '2-digit', minute: '2-digit', hour12: true
+        })
+      })),
+      totalParticipantes: participantes.length
+    }
+  });
+}));
+
+// ============================================
+// 4.3 LISTAR TODAS LAS TRIVIAS
+// GET /api/trivias
+// ============================================
+app.get('/api/trivias', asyncHandler(async (req, res) => {
+  const [trivias] = await pool.query(
+    `SELECT
+      t.id, t.nombre, t.descripcion, t.fecha_inicio, t.fecha_fin,
+      t.puntos_maximos, t.puntos_minimos, t.activo, t.fecha_creacion,
+      COUNT(r.id) as total_participaciones,
+      SUM(CASE WHEN r.es_correcta = 1 THEN r.puntos_ganados ELSE 0 END) as puntos_totales_otorgados
+     FROM trivias t
+     LEFT JOIN respuestas_usuarios r ON t.id = r.trivia_id
+     GROUP BY t.id
+     ORDER BY t.fecha_inicio DESC`
+  );
+
+  res.json({
+    success: true,
+    data: trivias.map(t => ({
+      ...t,
+      estado: new Date() < new Date(t.fecha_inicio) ? 'proxima' :
+              new Date() > new Date(t.fecha_fin) ? 'finalizada' : 'activa'
+    }))
+  });
+}));
+
+// ============================================
+// 4.4 PARTICIPANTES DE UNA TRIVIA
+// GET /api/trivias/:id/participantes
+// ============================================
+app.get('/api/trivias/:id/participantes', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const [trivias] = await pool.query(
+    'SELECT id, nombre, descripcion, fecha_inicio, fecha_fin, puntos_maximos, puntos_minimos FROM trivias WHERE id = ?',
+    [id]
+  );
+
+  if (trivias.length === 0) {
+    return res.status(404).json({ success: false, error: 'Trivia no encontrada' });
+  }
+
+  const trivia = trivias[0];
+
+  const [participantes] = await pool.query(
+    `SELECT r.id, r.usuario_id, u.nombre, r.puntos_ganados, r.fecha_respuesta, r.es_correcta
+     FROM respuestas_usuarios r
+     INNER JOIN usuarios u ON r.usuario_id = u.id
+     WHERE r.trivia_id = ?
+     ORDER BY r.puntos_ganados DESC, r.fecha_respuesta ASC`,
+    [id]
+  );
+
+  res.json({
+    success: true,
+    data: {
+      trivia: {
+        id: trivia.id,
+        nombre: trivia.nombre,
+        descripcion: trivia.descripcion,
+        fechaInicio: trivia.fecha_inicio,
+        fechaFin: trivia.fecha_fin,
+        puntosMaximos: trivia.puntos_maximos,
+        puntosMinimos: trivia.puntos_minimos
+      },
+      participantes: participantes.map((p, index) => ({
+        posicion: index + 1,
+        id: p.id,
+        usuarioId: p.usuario_id,
+        nombre: p.nombre,
+        puntos: parseInt(p.puntos_ganados),
+        esCorrecta: p.es_correcta === 1,
+        fecha: new Date(p.fecha_respuesta).toLocaleDateString('es-MX', {
+          year: 'numeric', month: 'short', day: 'numeric'
+        }),
+        hora: new Date(p.fecha_respuesta).toLocaleTimeString('es-MX', {
+          hour: '2-digit', minute: '2-digit', hour12: true
+        })
+      })),
+      totalParticipantes: participantes.length,
+      respuestasCorrectas: participantes.filter(p => p.es_correcta === 1).length
+    }
+  });
+}));
+
+// ============================================
+// 4.5 LISTAR USUARIOS PARA AUDITORÍA
+// GET /api/auditoria/usuarios
+// ============================================
+app.get('/api/auditoria/usuarios', asyncHandler(async (req, res) => {
+  const [usuarios] = await pool.query(
+    `SELECT
+      u.id,
+      u.nombre,
+      u.email,
+      u.numero_empleado,
+      u.total_puntos,
+      u.fecha_registro,
+      u.es_acompanante,
+      (SELECT COUNT(*) FROM participaciones WHERE usuario_id = u.id) as total_concursos,
+      (SELECT COUNT(*) FROM respuestas_usuarios WHERE usuario_id = u.id AND es_correcta = 1) as total_trivias
+     FROM usuarios u
+     WHERE u.activo = 1
+     ORDER BY u.total_puntos DESC`
+  );
+
+  res.json({
+    success: true,
+    data: usuarios.map(u => ({
+      id: u.id,
+      nombre: u.nombre,
+      email: u.email,
+      numeroEmpleado: u.numero_empleado,
+      totalPuntos: parseInt(u.total_puntos) || 0,
+      fechaRegistro: u.fecha_registro,
+      esAcompanante: u.es_acompanante === 1,
+      totalConcursos: parseInt(u.total_concursos) || 0,
+      totalTrivias: parseInt(u.total_trivias) || 0
+    })),
+    totalUsuarios: usuarios.length
+  });
+}));
+
+// ============================================
+// 4.6 HISTORIAL DE UN USUARIO PARA AUDITORÍA
+// GET /api/auditoria/usuarios/:id/historial
+// ============================================
+app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // Obtener info del usuario
+  const [usuarios] = await pool.query(
+    'SELECT id, nombre, email, numero_empleado, total_puntos, fecha_registro, es_acompanante FROM usuarios WHERE id = ? AND activo = 1',
+    [id]
+  );
+
+  if (usuarios.length === 0) {
+    return res.status(404).json({
+      success: false,
+      error: 'Usuario no encontrado'
+    });
+  }
+
+  const usuario = usuarios[0];
+
+  // Obtener participaciones en concursos
+  const [concursos] = await pool.query(
+    `SELECT
+      p.id,
+      c.nombre as evento,
+      c.codigo_unico as codigo,
+      p.puntos_ganados as puntos,
+      p.fecha_participacion as fecha,
+      'concurso' as tipo
+     FROM participaciones p
+     INNER JOIN concursos c ON p.concurso_id = c.id
+     WHERE p.usuario_id = ?`,
+    [id]
+  );
+
+  // Obtener participaciones en trivias
+  const [trivias] = await pool.query(
+    `SELECT
+      r.id,
+      t.nombre as evento,
+      CONCAT('TRIVIA-', t.id) as codigo,
+      r.puntos_ganados as puntos,
+      r.fecha_respuesta as fecha,
+      'trivia' as tipo,
+      r.es_correcta
+     FROM respuestas_usuarios r
+     INNER JOIN trivias t ON r.trivia_id = t.id
+     WHERE r.usuario_id = ?`,
+    [id]
+  );
+
+  // Combinar y ordenar
+  const historial = [...concursos, ...trivias]
+    .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
+    .map((h, index) => ({
+      id: h.id,
+      evento: h.evento,
+      codigo: h.codigo,
+      puntos: parseInt(h.puntos) || 0,
+      tipo: h.tipo,
+      esCorrecta: h.es_correcta === 1,
+      fecha: new Date(h.fecha).toLocaleDateString('es-MX', {
+        year: 'numeric', month: 'short', day: 'numeric'
+      }),
+      hora: new Date(h.fecha).toLocaleTimeString('es-MX', {
+        hour: '2-digit', minute: '2-digit', hour12: true
+      })
+    }));
+
+  const puntosConcursos = concursos.reduce((sum, c) => sum + (parseInt(c.puntos) || 0), 0);
+  const puntosTrivias = trivias.filter(t => t.es_correcta === 1).reduce((sum, t) => sum + (parseInt(t.puntos) || 0), 0);
+
+  res.json({
+    success: true,
+    data: {
+      usuario: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        email: usuario.email,
+        numeroEmpleado: usuario.numero_empleado,
+        totalPuntos: parseInt(usuario.total_puntos) || 0,
+        fechaRegistro: usuario.fecha_registro,
+        esAcompanante: usuario.es_acompanante === 1
+      },
+      resumen: {
+        totalPuntos: parseInt(usuario.total_puntos) || 0,
+        puntosConcursos,
+        puntosTrivias,
+        totalConcursos: concursos.length,
+        totalTrivias: trivias.filter(t => t.es_correcta === 1).length
+      },
+      historial
+    }
   });
 }));
 
@@ -886,47 +1357,187 @@ app.get('/api/countdown/config', asyncHandler(async (req, res) => {
 }));
 
 // ============================================
-// 7. OBTENER PREGUNTA ALEATORIA
+// 7. OBTENER PRÓXIMA TRIVIA (para countdown)
+// GET /api/trivias/proxima
+// ============================================
+app.get('/api/trivias/proxima', asyncHandler(async (req, res) => {
+  try {
+    // Buscar primera trivia activa o próxima (ordenadas por fecha_inicio)
+    const [trivias] = await queryWithTimezone(
+      `SELECT id, nombre, descripcion, fecha_inicio, fecha_fin,
+              puntos_maximos, puntos_minimos
+       FROM trivias
+       WHERE activo = 1
+       AND fecha_fin > NOW()
+       ORDER BY fecha_inicio ASC
+       LIMIT 1`
+    );
+
+    if (trivias.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No hay trivias configuradas',
+        data: null
+      });
+    }
+
+    const trivia = trivias[0];
+
+    res.json({
+      success: true,
+      data: {
+        id: trivia.id,
+        nombre: trivia.nombre,
+        descripcion: trivia.descripcion,
+        fechaInicio: trivia.fecha_inicio,
+        fechaFin: trivia.fecha_fin,
+        puntosMaximos: trivia.puntos_maximos,
+        puntosMinimos: trivia.puntos_minimos
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al obtener próxima trivia:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener próxima trivia'
+    });
+  }
+}));
+
+// ============================================
+// 8. OBTENER TRIVIA ACTIVA
+// GET /api/trivias/activa
+// ============================================
+app.get('/api/trivias/activa', asyncHandler(async (req, res) => {
+  const usuarioId = req.query.usuarioId;
+
+  try {
+    // LOG: Verificar hora del servidor CON TIMEZONE
+    const [horaServidor] = await queryWithTimezone('SELECT NOW() as hora, @@session.time_zone as tz');
+    console.log('🕒 Hora del servidor MySQL:', horaServidor[0].hora);
+    console.log('🌍 Timezone:', horaServidor[0].tz);
+
+    // Obtener trivia activa con puntaje calculado en MySQL
+    const [trivias] = await queryWithTimezone(
+      `SELECT
+        id,
+        nombre,
+        descripcion,
+        fecha_inicio,
+        fecha_fin,
+        puntos_maximos,
+        puntos_minimos,
+        ROUND(
+          puntos_maximos -
+          ((puntos_maximos - puntos_minimos) *
+          (TIMESTAMPDIFF(SECOND, fecha_inicio, NOW()) /
+           TIMESTAMPDIFF(SECOND, fecha_inicio, fecha_fin)))
+        ) as puntaje_actual
+       FROM trivias
+       WHERE activo = 1
+       AND NOW() BETWEEN fecha_inicio AND fecha_fin
+       ORDER BY fecha_inicio DESC
+       LIMIT 1`
+    );
+
+    console.log('📊 Trivias encontradas:', trivias.length);
+    if (trivias.length > 0) {
+      console.log('✅ Trivia activa:', trivias[0].nombre);
+      console.log('📈 Puntaje actual:', trivias[0].puntaje_actual);
+    }
+
+    if (trivias.length === 0) {
+      // LOG: Mostrar todas las trivias para debug
+      const [todasTrivias] = await queryWithTimezone(
+        `SELECT id, nombre, fecha_inicio, fecha_fin, activo,
+                NOW() as ahora,
+                CASE
+                  WHEN NOW() < fecha_inicio THEN 'NO INICIADA'
+                  WHEN NOW() > fecha_fin THEN 'FINALIZADA'
+                  ELSE 'ACTIVA'
+                END as estado
+         FROM trivias
+         WHERE activo = 1`
+      );
+      console.log('🔍 Debug - Todas las trivias activas:', todasTrivias);
+
+      return res.json({
+        success: false,
+        error: 'No hay trivias activas en este momento',
+        data: null
+      });
+    }
+
+    const trivia = trivias[0];
+    const puntajeActual = trivia.puntaje_actual;
+
+    // Verificar si el usuario ya participó en esta trivia
+    let yaParticipo = false;
+    if (usuarioId) {
+      const [participaciones] = await pool.query(
+        'SELECT id FROM respuestas_usuarios WHERE usuario_id = ? AND trivia_id = ?',
+        [usuarioId, trivia.id]
+      );
+      yaParticipo = participaciones.length > 0;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        triviaId: trivia.id,
+        nombre: trivia.nombre,
+        descripcion: trivia.descripcion,
+        fechaInicio: trivia.fecha_inicio,
+        fechaFin: trivia.fecha_fin,
+        puntosMaximos: trivia.puntos_maximos,
+        puntosMinimos: trivia.puntos_minimos,
+        puntajeActual,
+        yaParticipo
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al obtener trivia activa:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener trivia activa'
+    });
+  }
+}));
+
+// ============================================
+// 8. OBTENER PREGUNTA ALEATORIA
 // GET /api/preguntas/random
 // ============================================
 app.get('/api/preguntas/random', asyncHandler(async (req, res) => {
   const usuarioId = req.query.usuarioId;
+  const triviaId = req.query.triviaId;
 
-  // Obtener una pregunta aleatoria activa que el usuario no haya respondido
-  let query;
-  let params;
-
-  if (usuarioId) {
-    // Si hay usuarioId, evitar preguntas ya respondidas
-    query = `
-      SELECT id, pregunta, opcion_a, opcion_b, opcion_c, opcion_d, puntos
-      FROM preguntas
-      WHERE activo = 1
-      AND id NOT IN (
-        SELECT pregunta_id FROM respuestas_usuarios WHERE usuario_id = ?
-      )
-      ORDER BY RAND()
-      LIMIT 1
-    `;
-    params = [usuarioId];
-  } else {
-    // Sin usuarioId, cualquier pregunta activa
-    query = `
-      SELECT id, pregunta, opcion_a, opcion_b, opcion_c, opcion_d, puntos
-      FROM preguntas
-      WHERE activo = 1
-      ORDER BY RAND()
-      LIMIT 1
-    `;
-    params = [];
+  // Validar que triviaId esté presente
+  if (!triviaId) {
+    return res.status(400).json({
+      success: false,
+      error: 'El parámetro triviaId es requerido'
+    });
   }
 
-  const [preguntas] = await pool.query(query, params);
+  // Obtener una pregunta aleatoria de la trivia específica
+  const query = `
+    SELECT id, pregunta, opcion_a, opcion_b, opcion_c, opcion_d, puntos, trivia_id
+    FROM preguntas
+    WHERE activo = 1
+    AND trivia_id = ?
+    ORDER BY RAND()
+    LIMIT 1
+  `;
+
+  const [preguntas] = await pool.query(query, [triviaId]);
 
   if (preguntas.length === 0) {
     return res.status(404).json({
       success: false,
-      error: 'No hay preguntas disponibles'
+      error: 'No hay preguntas disponibles para esta trivia'
     });
   }
 
@@ -937,17 +1548,17 @@ app.get('/api/preguntas/random', asyncHandler(async (req, res) => {
 }));
 
 // ============================================
-// 8. RESPONDER PREGUNTA
+// 8. RESPONDER PREGUNTA CON TRIVIA
 // POST /api/preguntas/responder
 // ============================================
 app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
-  const { usuarioId, preguntaId, respuesta } = req.body;
+  const { usuarioId, preguntaId, respuesta, triviaId } = req.body;
 
   // Validaciones
-  if (!usuarioId || !preguntaId || !respuesta) {
+  if (!usuarioId || !preguntaId || !respuesta || !triviaId) {
     return res.status(400).json({
       success: false,
-      error: 'Faltan parámetros requeridos'
+      error: 'Faltan parámetros requeridos (usuarioId, preguntaId, respuesta, triviaId)'
     });
   }
 
@@ -974,65 +1585,155 @@ app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
 
     const usuario = usuarios[0];
 
-    // 2. Verificar que la pregunta existe
+    // 2. Verificar que la trivia existe y está activa
+    const [trivias] = await pool.query(
+      `SELECT id, nombre, fecha_inicio, fecha_fin, puntos_maximos, puntos_minimos
+       FROM trivias
+       WHERE id = ? AND activo = 1`,
+      [triviaId]
+    );
+
+    if (trivias.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Trivia no encontrada o inactiva'
+      });
+    }
+
+    const trivia = trivias[0];
+
+    // 3. Verificar si el usuario ya participó en esta trivia
+    const [participacionesExistentes] = await pool.query(
+      'SELECT id FROM respuestas_usuarios WHERE usuario_id = ? AND trivia_id = ?',
+      [usuarioId, triviaId]
+    );
+
+    if (participacionesExistentes.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: `Ya participaste en la trivia "${trivia.nombre}". Solo puedes participar una vez por trivia.`,
+        tipo: 'ya_participo'
+      });
+    }
+
+    // 4. Verificar que la pregunta existe y pertenece a esta trivia
     const [preguntas] = await pool.query(
-      'SELECT id, pregunta, respuesta_correcta, puntos FROM preguntas WHERE id = ? AND activo = 1',
-      [preguntaId]
+      `SELECT id, pregunta, respuesta_correcta, puntos, trivia_id
+       FROM preguntas
+       WHERE id = ? AND trivia_id = ? AND activo = 1`,
+      [preguntaId, triviaId]
     );
 
     if (preguntas.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Pregunta no encontrada'
+        error: 'Pregunta no encontrada o no pertenece a esta trivia'
       });
     }
 
     const pregunta = preguntas[0];
 
-    // 3. Verificar si ya respondió esta pregunta
-    const [respuestasExistentes] = await pool.query(
-      'SELECT id FROM respuestas_usuarios WHERE usuario_id = ? AND pregunta_id = ?',
-      [usuarioId, preguntaId]
+    // 5. Calcular puntaje dinámico basado en tiempo (en MySQL)
+    const [puntajeCalc] = await queryWithTimezone(
+      `SELECT
+        CASE
+          WHEN NOW() < ? THEN NULL
+          WHEN NOW() > ? THEN NULL
+          ELSE ROUND(
+            ? - ((? - ?) *
+            (TIMESTAMPDIFF(SECOND, ?, NOW()) /
+             TIMESTAMPDIFF(SECOND, ?, ?)))
+          )
+        END as puntaje_dinamico,
+        CASE
+          WHEN NOW() < ? THEN 'NO_INICIADA'
+          WHEN NOW() > ? THEN 'FINALIZADA'
+          ELSE 'ACTIVA'
+        END as estado_trivia`,
+      [
+        trivia.fecha_inicio, // para validar no iniciada
+        trivia.fecha_fin,    // para validar finalizada
+        trivia.puntos_maximos, trivia.puntos_maximos, trivia.puntos_minimos, // cálculo puntaje
+        trivia.fecha_inicio, trivia.fecha_inicio, trivia.fecha_fin, // cálculo porcentaje
+        trivia.fecha_inicio, // para estado no iniciada
+        trivia.fecha_fin     // para estado finalizada
+      ]
     );
 
-    if (respuestasExistentes.length > 0) {
-      return res.status(409).json({
+    // Verificar que estamos dentro de la ventana de tiempo
+    if (puntajeCalc[0].estado_trivia === 'NO_INICIADA') {
+      return res.status(400).json({
         success: false,
-        error: 'Ya respondiste esta pregunta anteriormente'
+        error: 'La trivia aún no ha comenzado',
+        tipo: 'no_iniciada'
       });
     }
 
-    // 4. Verificar si la respuesta es correcta
-    const esCorrecta = respuesta.toUpperCase() === pregunta.respuesta_correcta;
-    const puntosGanados = esCorrecta ? pregunta.puntos : 0;
+    if (puntajeCalc[0].estado_trivia === 'FINALIZADA') {
+      return res.status(400).json({
+        success: false,
+        error: 'La trivia ya finalizó',
+        tipo: 'finalizada'
+      });
+    }
 
-    // 5. Registrar la respuesta
+    const puntajeDinamico = parseInt(puntajeCalc[0].puntaje_dinamico) || 0;
+
+    // 6. Verificar si la respuesta es correcta
+    const esCorrecta = respuesta.toUpperCase() === pregunta.respuesta_correcta;
+    const puntosGanados = esCorrecta ? puntajeDinamico : 0;
+
+    // 7. Registrar la respuesta con trivia_id
     await pool.query(
-      `INSERT INTO respuestas_usuarios (usuario_id, pregunta_id, respuesta_seleccionada, es_correcta, puntos_ganados)
-       VALUES (?, ?, ?, ?, ?)`,
-      [usuarioId, preguntaId, respuesta.toUpperCase(), esCorrecta ? 1 : 0, puntosGanados]
+      `INSERT INTO respuestas_usuarios
+       (usuario_id, pregunta_id, trivia_id, respuesta_seleccionada, es_correcta, puntos_ganados)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [usuarioId, preguntaId, triviaId, respuesta.toUpperCase(), esCorrecta ? 1 : 0, puntosGanados]
     );
 
-    // 6. Si es correcta, actualizar puntos del usuario
+    // 8. Si es correcta, actualizar puntos del usuario
     let nuevoTotal = usuario.total_puntos;
     if (esCorrecta) {
-      nuevoTotal = usuario.total_puntos + puntosGanados;
+      nuevoTotal = parseInt(usuario.total_puntos) + puntosGanados;
       await pool.query(
         'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
         [nuevoTotal, usuarioId]
       );
+
+      // Si el usuario es acompañante, también actualizar puntos del usuario principal
+      const [esAcompanante] = await pool.query(
+        `SELECT a.usuario_principal_id, u.total_puntos as puntos_principal
+         FROM acompanantes a
+         INNER JOIN usuarios u ON a.usuario_principal_id = u.id
+         WHERE a.usuario_acompanante_id = ?`,
+        [usuarioId]
+      );
+
+      if (esAcompanante.length > 0) {
+        const principal = esAcompanante[0];
+        const nuevoTotalPrincipal = principal.puntos_principal + puntosGanados;
+        await pool.query(
+          'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
+          [nuevoTotalPrincipal, principal.usuario_principal_id]
+        );
+      }
     }
 
-    // 7. Responder
+    // 9. Responder
     res.status(200).json({
       success: true,
       data: {
         esCorrecta,
         respuestaCorrecta: pregunta.respuesta_correcta,
         puntosGanados,
+        puntajeDinamico,
         totalPuntos: nuevoTotal,
+        trivia: {
+          id: trivia.id,
+          nombre: trivia.nombre
+        },
         mensaje: esCorrecta
-          ? `¡Correcto! Ganaste ${puntosGanados} puntos`
+          ? `¡Correcto! Ganaste ${puntosGanados} puntos en "${trivia.nombre}"`
           : `Incorrecto. La respuesta correcta era ${pregunta.respuesta_correcta}`
       }
     });
@@ -1042,6 +1743,280 @@ app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Error al procesar la respuesta'
+    });
+  }
+}));
+
+
+// ============================================
+// 9. VALIDAR NÚMERO DE EMPLEADO
+// GET /api/numeros-empleado/validar/:numero
+// ============================================
+app.get('/api/numeros-empleado/validar/:numero', asyncHandler(async (req, res) => {
+  const { numero } = req.params;
+
+  if (!numero || !numero.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'El número de empleado es requerido'
+    });
+  }
+
+  try {
+    // Buscar número de empleado en la tabla
+    const [empleados] = await pool.query(
+      'SELECT numero_empleado, sucursal, puesto, activo FROM numeros_empleado WHERE numero_empleado = ?',
+      [numero.trim()]
+    );
+
+    if (empleados.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Número de empleado no válido',
+        valido: false
+      });
+    }
+
+    const empleado = empleados[0];
+
+    // Verificar si está activo
+    if (empleado.activo !== 1) {
+      return res.status(403).json({
+        success: false,
+        error: 'Número de empleado inactivo',
+        valido: false
+      });
+    }
+
+    // Verificar si ya está registrado
+    const [usuariosExistentes] = await pool.query(
+      'SELECT id, nombre FROM usuarios WHERE numero_empleado = ?',
+      [numero.trim()]
+    );
+
+    if (usuariosExistentes.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: 'Este número de empleado ya está registrado',
+        valido: false,
+        yaRegistrado: true,
+        usuario: {
+          id: usuariosExistentes[0].id,
+          nombre: usuariosExistentes[0].nombre
+        }
+      });
+    }
+
+    // Número válido y disponible
+    res.status(200).json({
+      success: true,
+      valido: true,
+      data: {
+        numeroEmpleado: empleado.numero_empleado,
+        sucursal: empleado.sucursal,
+        puesto: empleado.puesto
+      }
+    });
+
+  } catch (error) {
+    console.error('Error validando número de empleado:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al validar número de empleado'
+    });
+  }
+}));
+
+// ============================================
+// 10. REGISTRAR ACOMPAÑANTE
+// POST /api/acompanantes/registro
+// ============================================
+app.post('/api/acompanantes/registro', asyncHandler(async (req, res) => {
+  const { nombre, email, foto, usuarioPrincipalId } = req.body;
+
+  // Validaciones
+  if (!nombre || !nombre.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'El nombre es requerido'
+    });
+  }
+
+  if (!foto) {
+    return res.status(400).json({
+      success: false,
+      error: 'La foto es requerida'
+    });
+  }
+
+  if (!usuarioPrincipalId) {
+    return res.status(400).json({
+      success: false,
+      error: 'El ID del usuario principal es requerido'
+    });
+  }
+
+  if (!awsRekognition) {
+    return res.status(503).json({
+      success: false,
+      error: 'Servicio de AWS Rekognition no configurado'
+    });
+  }
+  try {
+
+    // 3. Verificar que el usuario principal existe
+    const [usuariosPrincipales] = await pool.query(
+      'SELECT id, nombre FROM usuarios WHERE id = ? AND activo = 1',
+      [usuarioPrincipalId]
+    );
+
+    if (usuariosPrincipales.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Usuario principal no encontrado'
+      });
+    }
+
+    // 4. Verificar que el usuario principal no tenga ya un acompañante
+    const [acompanantesExistentes] = await pool.query(
+      'SELECT id FROM acompanantes WHERE usuario_principal_id = ?',
+      [usuarioPrincipalId]
+    );
+
+    if (acompanantesExistentes.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: 'Ya tienes un acompañante registrado'
+      });
+    }
+
+    // 5. Convertir foto base64 a buffer
+    const imageBuffer = base64ToBuffer(foto);
+
+    // 6. Indexar rostro en AWS Rekognition
+    const { faceId, s3Url } = await awsRekognition.indexFace(imageBuffer, `acompanante-${Date.now()}.jpg`);
+
+    // 7. Insertar usuario acompañante en la base de datos
+    const fechaMexico = new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' });
+    const fechaRegistro = new Date(fechaMexico);
+
+    const [resultUsuario] = await pool.query(
+      `INSERT INTO usuarios (nombre, email, foto_registro_url, rekognition_face_id, es_acompanante, fecha_registro)
+       VALUES (?, ?, ?, ?, 1, ?)`,
+      [nombre, email || null, s3Url, faceId, fechaRegistro]
+    );
+
+    const acompananteId = resultUsuario.insertId;
+
+    // 8. Crear relación en tabla acompanantes
+    await pool.query(
+      'INSERT INTO acompanantes (usuario_principal_id, usuario_acompanante_id) VALUES (?, ?)',
+      [usuarioPrincipalId, acompananteId]
+    );
+
+    // Respuesta exitosa
+    res.status(201).json({
+      success: true,
+      message: 'Acompañante registrado exitosamente',
+      data: {
+        acompananteId,
+        nombre,
+        email: email || null,
+        faceId
+      }
+    });
+
+  } catch (error) {
+    console.error('Error registrando acompañante:', error);
+
+    // Errores específicos de AWS Rekognition
+    if (error.code === 'InvalidImageFormatException') {
+      return res.status(400).json({
+        success: false,
+        error: 'Formato de imagen inválido'
+      });
+    }
+    if (error.code === 'InvalidParameterException') {
+      return res.status(400).json({
+        success: false,
+        error: 'No se detectó un rostro en la imagen o hay múltiples rostros'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Error al registrar acompañante'
+    });
+  }
+}));
+
+// ============================================
+// 11. OBTENER ACOMPAÑANTE DE UN USUARIO
+// GET /api/usuarios/:id/acompanante
+// ============================================
+app.get('/api/usuarios/:id/acompanante', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({
+      success: false,
+      error: 'El ID de usuario es requerido'
+    });
+  }
+
+  try {
+    // Buscar el acompañante del usuario
+    const [acompanantes] = await pool.query(
+      `SELECT
+        u.id,
+        u.nombre,
+        u.email,
+        u.numero_empleado,
+        u.total_puntos,
+        u.foto_registro_url,
+        u.fecha_registro,
+        ne.sucursal,
+        ne.puesto,
+        a.fecha_registro as fecha_vinculacion
+       FROM acompanantes a
+       INNER JOIN usuarios u ON a.usuario_acompanante_id = u.id
+       LEFT JOIN numeros_empleado ne ON u.numero_empleado = ne.numero_empleado
+       WHERE a.usuario_principal_id = ? AND u.activo = 1`,
+      [id]
+    );
+
+    if (acompanantes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No tienes acompañante registrado',
+        tieneAcompanante: false
+      });
+    }
+
+    const acompanante = acompanantes[0];
+
+    res.status(200).json({
+      success: true,
+      tieneAcompanante: true,
+      data: {
+        id: acompanante.id,
+        nombre: acompanante.nombre,
+        email: acompanante.email,
+        numeroEmpleado: acompanante.numero_empleado,
+        sucursal: acompanante.sucursal,
+        puesto: acompanante.puesto,
+        totalPuntos: acompanante.total_puntos,
+        fotoUrl: acompanante.foto_registro_url,
+        fechaRegistro: acompanante.fecha_registro,
+        fechaVinculacion: acompanante.fecha_vinculacion
+      }
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo acompañante:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener acompañante'
     });
   }
 }));
