@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/shared/Header';
 import { Footer } from '@/components/shared/Footer';
 import { CameraCapture } from '@/components/shared/CameraCapture';
@@ -47,6 +47,8 @@ interface Acompanante {
 
 export default function MiPerfil() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnUrl = searchParams.get('returnUrl');
   const [step, setStep] = useState<'checking' | 'camera' | 'loading' | 'profile' | 'not-found'>('checking');
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [historial, setHistorial] = useState<Participacion[]>([]);
@@ -160,6 +162,13 @@ export default function MiPerfil() {
         setHistorial(data.data.historial || []);
         setStep('profile');
         toast.success(`¡Bienvenido ${data.data.usuario.nombre}!`);
+
+        // Si hay returnUrl, redirigir después de un momento
+        if (returnUrl) {
+          setTimeout(() => {
+            navigate(returnUrl);
+          }, 1500);
+        }
 
         // Cargar acompañante si existe
         await fetchAcompanante(data.data.usuario.id);

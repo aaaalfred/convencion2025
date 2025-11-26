@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/shared/Header';
 import { Footer } from '@/components/shared/Footer';
 import { CameraCapture } from '@/components/shared/CameraCapture';
@@ -15,6 +15,8 @@ import { apiUrl } from '@/lib/api-config';
 
 export default function Registro() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnUrl = searchParams.get('returnUrl');
   const [step, setStep] = useState<'form' | 'camera' | 'acompanante-form' | 'acompanante-camera' | 'success'>('form');
   const [loading, setLoading] = useState(false);
   const [usuarioId, setUsuarioId] = useState<number | null>(null);
@@ -575,21 +577,33 @@ export default function Registro() {
                 </div>
 
                 <div className="flex flex-col space-y-3">
-                  <Button
-                    onClick={handleGoHome}
-                    className="w-full"
-                    size="lg"
-                  >
-                    Ir al inicio
-                  </Button>
+                  {returnUrl ? (
+                    <Button
+                      onClick={() => navigate(returnUrl)}
+                      className="w-full bg-gradient-to-r from-primary to-orange-500"
+                      size="lg"
+                    >
+                      Continuar a la Trivia
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        onClick={handleGoHome}
+                        className="w-full"
+                        size="lg"
+                      >
+                        Ir al inicio
+                      </Button>
 
-                  <Button
-                    onClick={() => navigate('/concurso/NAV2024')}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    Participar en un concurso de prueba
-                  </Button>
+                      <Button
+                        onClick={() => navigate('/concurso/NAV2024')}
+                        variant="outline"
+                        className="w-full"
+                      >
+                        Participar en un concurso de prueba
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 {usuarioId && (

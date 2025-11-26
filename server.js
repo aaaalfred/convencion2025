@@ -726,7 +726,7 @@ app.get('/api/usuarios/perfil-sesion/:usuarioId', asyncHandler(async (req, res) 
        FROM respuestas_usuarios r
        INNER JOIN trivias t ON r.trivia_id = t.id
        INNER JOIN usuarios u ON r.usuario_id = u.id
-       WHERE r.usuario_id IN (?) AND r.es_correcta = 1`,
+       WHERE r.usuario_id IN (?)`,
       [usuariosIds]
     );
 
@@ -876,7 +876,7 @@ app.post('/api/usuarios/perfil', asyncHandler(async (req, res) => {
        FROM respuestas_usuarios r
        INNER JOIN trivias t ON r.trivia_id = t.id
        INNER JOIN usuarios u ON r.usuario_id = u.id
-       WHERE r.usuario_id IN (?) AND r.es_correcta = 1`,
+       WHERE r.usuario_id IN (?)`,
       [usuariosIds]
     );
 
@@ -1148,7 +1148,7 @@ app.get('/api/auditoria/usuarios', asyncHandler(async (req, res) => {
       u.fecha_registro,
       u.es_acompanante,
       (SELECT COUNT(*) FROM participaciones WHERE usuario_id = u.id) as total_concursos,
-      (SELECT COUNT(*) FROM respuestas_usuarios WHERE usuario_id = u.id AND es_correcta = 1) as total_trivias
+      (SELECT COUNT(*) FROM respuestas_usuarios WHERE usuario_id = u.id) as total_trivias
      FROM usuarios u
      WHERE u.activo = 1
      ORDER BY u.total_puntos DESC`
@@ -1243,7 +1243,7 @@ app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) =
     }));
 
   const puntosConcursos = concursos.reduce((sum, c) => sum + (parseInt(c.puntos) || 0), 0);
-  const puntosTrivias = trivias.filter(t => t.es_correcta === 1).reduce((sum, t) => sum + (parseInt(t.puntos) || 0), 0);
+  const puntosTrivias = trivias.reduce((sum, t) => sum + (parseInt(t.puntos) || 0), 0);
 
   res.json({
     success: true,
@@ -1262,7 +1262,7 @@ app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) =
         puntosConcursos,
         puntosTrivias,
         totalConcursos: concursos.length,
-        totalTrivias: trivias.filter(t => t.es_correcta === 1).length
+        totalTrivias: trivias.length
       },
       historial
     }
@@ -1681,7 +1681,8 @@ app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
 
     // 6. Verificar si la respuesta es correcta
     const esCorrecta = respuesta.toUpperCase() === pregunta.respuesta_correcta;
-    const puntosGanados = esCorrecta ? puntajeDinamico : 0;
+    // Si es correcta: puntaje dinámico. Si es incorrecta: puntos mínimos por participar
+    const puntosGanados = esCorrecta ? puntajeDinamico : trivia.puntos_minimos;
 
     // 7. Registrar la respuesta con trivia_id
     await pool.query(
@@ -1691,32 +1692,29 @@ app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
       [usuarioId, preguntaId, triviaId, respuesta.toUpperCase(), esCorrecta ? 1 : 0, puntosGanados]
     );
 
-    // 8. Si es correcta, actualizar puntos del usuario
-    let nuevoTotal = usuario.total_puntos;
-    if (esCorrecta) {
-      nuevoTotal = parseInt(usuario.total_puntos) + puntosGanados;
+    // 8. Actualizar puntos del usuario (siempre gana puntos por participar)
+    let nuevoTotal = parseInt(usuario.total_puntos) + puntosGanados;
+    await pool.query(
+      'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
+      [nuevoTotal, usuarioId]
+    );
+
+    // Si el usuario es acompañante, también actualizar puntos del usuario principal
+    const [esAcompanante] = await pool.query(
+      `SELECT a.usuario_principal_id, u.total_puntos as puntos_principal
+       FROM acompanantes a
+       INNER JOIN usuarios u ON a.usuario_principal_id = u.id
+       WHERE a.usuario_acompanante_id = ?`,
+      [usuarioId]
+    );
+
+    if (esAcompanante.length > 0) {
+      const principal = esAcompanante[0];
+      const nuevoTotalPrincipal = principal.puntos_principal + puntosGanados;
       await pool.query(
         'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
-        [nuevoTotal, usuarioId]
+        [nuevoTotalPrincipal, principal.usuario_principal_id]
       );
-
-      // Si el usuario es acompañante, también actualizar puntos del usuario principal
-      const [esAcompanante] = await pool.query(
-        `SELECT a.usuario_principal_id, u.total_puntos as puntos_principal
-         FROM acompanantes a
-         INNER JOIN usuarios u ON a.usuario_principal_id = u.id
-         WHERE a.usuario_acompanante_id = ?`,
-        [usuarioId]
-      );
-
-      if (esAcompanante.length > 0) {
-        const principal = esAcompanante[0];
-        const nuevoTotalPrincipal = principal.puntos_principal + puntosGanados;
-        await pool.query(
-          'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
-          [nuevoTotalPrincipal, principal.usuario_principal_id]
-        );
-      }
     }
 
     // 9. Responder
@@ -1734,7 +1732,7 @@ app.post('/api/preguntas/responder', asyncHandler(async (req, res) => {
         },
         mensaje: esCorrecta
           ? `¡Correcto! Ganaste ${puntosGanados} puntos en "${trivia.nombre}"`
-          : `Incorrecto. La respuesta correcta era ${pregunta.respuesta_correcta}`
+          : `Incorrecto. La respuesta era ${pregunta.respuesta_correcta}. Ganaste ${puntosGanados} puntos por participar.`
       }
     });
 

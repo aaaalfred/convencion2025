@@ -142,19 +142,25 @@ export default function Index() {
                 <div className="flex items-start space-x-3">
                   <span className="text-2xl flex-shrink-0">2️⃣</span>
                   <div>
-                    <strong className="text-primary">Escanea QR:</strong> Cada código QR es un concurso diferente
+                    <strong className="text-primary">Participa:</strong> Participa en los concursos para obtener puntos, si eres ganador escanearás un QR desde la app Recompensas Herdez
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
                   <span className="text-2xl flex-shrink-0">3️⃣</span>
                   <div>
-                    <strong className="text-primary">Valida tu rostro:</strong> Te identificamos automáticamente
+                    <strong className="text-primary">Escanea QR:</strong> Cada código QR es un concurso y puntos diferentes
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
                   <span className="text-2xl flex-shrink-0">4️⃣</span>
                   <div>
-                    <strong className="text-primary">Gana puntos:</strong> Acumula puntos en cada concurso (sin duplicados)
+                    <strong className="text-primary">Valida tu rostro:</strong> Te identificamos automáticamente
+                  </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <span className="text-2xl flex-shrink-0">5️⃣</span>
+                  <div>
+                    <strong className="text-primary">Gana puntos:</strong> Acumula puntos en cada concurso
                   </div>
                 </div>
               </CardContent>

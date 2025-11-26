@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -56,8 +56,21 @@ interface TriviaProxima {
   puntosMinimos: number;
 }
 
+// Parsear fecha del servidor (viene en formato ISO UTC)
+const parseFechaMexico = (fechaStr: string): Date => {
+  // La fecha viene como ISO UTC: '2025-11-26T21:20:00.000Z'
+  // new Date() la parsea correctamente
+  return new Date(fechaStr);
+};
+
 const Countdown = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Función para navegar con returnUrl
+  const navigateWithReturn = (path: string) => {
+    navigate(`${path}?returnUrl=${encodeURIComponent(location.pathname)}`);
+  };
 
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,
@@ -162,7 +175,7 @@ const Countdown = () => {
     if (!triviaProxima) return;
 
     const calculateTimeLeft = () => {
-      const targetDate = new Date(triviaProxima.fechaInicio);
+      const targetDate = parseFechaMexico(triviaProxima.fechaInicio);
       const now = new Date();
       const difference = targetDate.getTime() - now.getTime();
 
@@ -327,10 +340,11 @@ const Countdown = () => {
     </motion.div>
   );
 
-  // Formatear fecha para mostrar
+  // Formatear fecha para mostrar (siempre en hora de México)
   const formatearFecha = (fechaStr: string) => {
-    const fecha = new Date(fechaStr);
+    const fecha = parseFechaMexico(fechaStr);
     return fecha.toLocaleDateString('es-MX', {
+      timeZone: 'America/Mexico_City',
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -395,7 +409,10 @@ const Countdown = () => {
             {triviaProxima.nombre}
           </p>
           <p className="text-lg md:text-xl text-purple-300 mt-2">
-            {formatearFecha(triviaProxima.fechaInicio)}
+            Inicia: {formatearFecha(triviaProxima.fechaInicio)}
+          </p>
+          <p className="text-base md:text-lg text-purple-300">
+            Termina: {formatearFecha(triviaProxima.fechaFin)}
           </p>
         </motion.div>
 
@@ -435,13 +452,13 @@ const Countdown = () => {
                   </p>
                   <div className="flex gap-3 justify-center flex-wrap">
                     <Button
-                      onClick={() => navigate('/registro')}
+                      onClick={() => navigateWithReturn('/registro')}
                       className="bg-gradient-to-r from-primary to-orange-500 hover:from-primary/90 hover:to-orange-600"
                     >
                       Registrarme
                     </Button>
                     <Button
-                      onClick={() => navigate('/mi-perfil')}
+                      onClick={() => navigateWithReturn('/mi-perfil')}
                       variant="outline"
                       className="border-primary text-primary hover:bg-primary/10"
                     >
@@ -486,14 +503,14 @@ const Countdown = () => {
                     </p>
                     <div className="flex gap-4 justify-center flex-wrap">
                       <Button
-                        onClick={() => navigate('/registro')}
+                        onClick={() => navigateWithReturn('/registro')}
                         size="lg"
                         className="bg-white text-orange-600 hover:bg-white/90 font-bold text-lg px-8"
                       >
                         Registrarme Ahora
                       </Button>
                       <Button
-                        onClick={() => navigate('/mi-perfil')}
+                        onClick={() => navigateWithReturn('/mi-perfil')}
                         variant="outline"
                         size="lg"
                         className="border-2 border-white text-white hover:bg-white/20 font-bold text-lg px-8"
