@@ -124,7 +124,8 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  timezone: '-06:00' // Zona horaria de México (UTC-6)
 });
 
 // Helper para ejecutar queries con timezone de México configurado
