@@ -65,7 +65,7 @@ export default function Index() {
           )}
 
           {/* Concurso Demo */}
-          <Link to="/concurso/NAV2024">
+          <Link to="/concurso/PRIMEROS100">
             <Card className="hover:shadow-card-hover transition-all duration-300 hover:scale-105 cursor-pointer h-full bg-card shadow-card">
               <CardHeader>
                 <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mb-4">

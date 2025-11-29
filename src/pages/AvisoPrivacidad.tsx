@@ -22,8 +22,7 @@ export default function AvisoPrivacidad() {
               <CardContent className="prose prose-sm max-w-none">
                 <p>
                   En cumplimiento de la legislación aplicable en materia de protección de datos personales,{' '}
-                  <strong>Grupo McTree</strong> (en adelante, el <strong>"Responsable"</strong>), con domicilio en{' '}
-                  <strong>[DOMICILIO]</strong>, pone a disposición de los participantes el presente{' '}
+                  <strong>Grupo McTree</strong> (en adelante, el <strong>"Responsable"</strong>), pone a disposición de los participantes el presente{' '}
                   <strong>Aviso de Privacidad</strong> relativo al tratamiento de sus datos personales y datos
                   biométricos de identificación facial con motivo de su participación en el concurso{' '}
                   <strong>"Convención Nacional SAHUAYO 2025"</strong> (en adelante, el <strong>"Concurso"</strong>),

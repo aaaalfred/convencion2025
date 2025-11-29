@@ -563,8 +563,9 @@ app.post('/api/concursos/:codigo/participar', asyncHandler(async (req, res) => {
           }
         });
       }
-    } else {
+    } else if (codigo !== 'MASTER300') {
       // MODO PARTICIPACIÓN MÚLTIPLE: Verificar si ESTE USUARIO ya participó
+      // Excepción: MASTER300 permite participaciones ILIMITADAS del mismo usuario
       const [participaciones] = await pool.query(
         'SELECT fecha_participacion, puntos_ganados FROM participaciones WHERE usuario_id = ? AND concurso_id = ?',
         [usuario.id, concurso.id]
@@ -594,11 +595,24 @@ app.post('/api/concursos/:codigo/participar', asyncHandler(async (req, res) => {
     const fechaMexico = new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' });
     const fechaParticipacion = new Date(fechaMexico);
 
-    await pool.query(
-      `INSERT INTO participaciones (usuario_id, concurso_id, puntos_ganados, confidence_score, fecha_participacion)
-       VALUES (?, ?, ?, ?, ?)`,
-      [usuario.id, concurso.id, concurso.puntos_otorgados, similarity, fechaParticipacion]
-    );
+    // MASTER300: Usa ON DUPLICATE KEY UPDATE para sumar puntos acumulados
+    if (codigo === 'MASTER300') {
+      await pool.query(
+        `INSERT INTO participaciones (usuario_id, concurso_id, puntos_ganados, confidence_score, fecha_participacion)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           puntos_ganados = puntos_ganados + VALUES(puntos_ganados),
+           confidence_score = VALUES(confidence_score),
+           fecha_participacion = VALUES(fecha_participacion)`,
+        [usuario.id, concurso.id, concurso.puntos_otorgados, similarity, fechaParticipacion]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO participaciones (usuario_id, concurso_id, puntos_ganados, confidence_score, fecha_participacion)
+         VALUES (?, ?, ?, ?, ?)`,
+        [usuario.id, concurso.id, concurso.puntos_otorgados, similarity, fechaParticipacion]
+      );
+    }
 
     // 6. Actualizar puntos totales del usuario
     const nuevoTotal = parseInt(usuario.total_puntos) + parseInt(concurso.puntos_otorgados);
@@ -667,7 +681,7 @@ app.get('/api/usuarios/perfil-sesion/:usuarioId', asyncHandler(async (req, res) 
   try {
     // 1. Obtener datos del usuario (sin AWS Rekognition)
     const [usuarios] = await pool.query(
-      'SELECT id, nombre, email, telefono, total_puntos, fecha_registro FROM usuarios WHERE id = ? AND activo = 1',
+      'SELECT id, nombre, email, telefono, total_puntos, fecha_registro, foto_registro_url FROM usuarios WHERE id = ? AND activo = 1',
       [usuarioId]
     );
 
@@ -745,6 +759,7 @@ app.get('/api/usuarios/perfil-sesion/:usuarioId', asyncHandler(async (req, res) 
           email: usuario.email,
           telefono: usuario.telefono,
           totalPuntos: usuario.total_puntos,
+          fotoUrl: awsRekognition?.getPresignedUrl ? awsRekognition.getPresignedUrl(usuario.foto_registro_url) : usuario.foto_registro_url,
           fechaRegistro: usuario.fecha_registro
         },
         historial: historial.map(h => ({
@@ -900,6 +915,7 @@ app.post('/api/usuarios/perfil', asyncHandler(async (req, res) => {
           email: usuario.email,
           telefono: usuario.telefono,
           totalPuntos: usuario.total_puntos,
+          fotoUrl: awsRekognition?.getPresignedUrl ? awsRekognition.getPresignedUrl(usuario.foto_registro_url) : usuario.foto_registro_url,
           fechaRegistro: usuario.fecha_registro
         },
         historial: historial.map(h => ({
@@ -2005,7 +2021,7 @@ app.get('/api/usuarios/:id/acompanante', asyncHandler(async (req, res) => {
         sucursal: acompanante.sucursal,
         puesto: acompanante.puesto,
         totalPuntos: acompanante.total_puntos,
-        fotoUrl: acompanante.foto_registro_url,
+        fotoUrl: awsRekognition?.getPresignedUrl ? awsRekognition.getPresignedUrl(acompanante.foto_registro_url) : acompanante.foto_registro_url,
         fechaRegistro: acompanante.fecha_registro,
         fechaVinculacion: acompanante.fecha_vinculacion
       }

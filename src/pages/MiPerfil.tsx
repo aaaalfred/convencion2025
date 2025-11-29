@@ -18,6 +18,7 @@ interface Usuario {
   email: string | null;
   totalPuntos: number;
   fechaRegistro: string;
+  fotoUrl?: string;
 }
 
 interface Participacion {
@@ -292,9 +293,13 @@ export default function MiPerfil() {
                 <Card className="shadow-card">
                   <CardHeader>
                     <div className="flex items-center space-x-4">
-                      <div className="w-16 h-16 bg-gradient-to-br from-primary to-orange-500 rounded-full flex items-center justify-center">
-                        <User className="w-8 h-8 text-white" />
-                      </div>
+                      {usuario.fotoUrl ? (
+                        <img src={usuario.fotoUrl} alt={usuario.nombre} className="w-16 h-16 rounded-full object-cover border-2 border-primary" />
+                      ) : (
+                        <div className="w-16 h-16 bg-gradient-to-br from-primary to-orange-500 rounded-full flex items-center justify-center">
+                          <User className="w-8 h-8 text-white" />
+                        </div>
+                      )}
                       <div className="flex-1">
                         <CardTitle className="text-2xl">{usuario.nombre}</CardTitle>
                         <CardDescription>
@@ -410,14 +415,14 @@ export default function MiPerfil() {
                                 {participacion.tipo === 'trivia' ? '🎯 TRIVIA' : participacion.codigo}
                               </Badge>
                             </TableCell>
+                            <TableCell className="text-sm text-gray-600">
+                              {participacion.fecha} {participacion.hora}
+                            </TableCell>
                             <TableCell>
                               <Badge variant={participacion.esAcompanante ? "default" : "secondary"} className="text-xs">
                                 {participacion.esAcompanante && <Users className="w-3 h-3 mr-1" />}
                                 {participacion.ganador}
                               </Badge>
-                            </TableCell>
-                            <TableCell className="text-sm text-gray-600">
-                              {participacion.fecha} {participacion.hora}
                             </TableCell>
                             <TableCell className="text-right">
                               <span className="font-semibold text-green-600">
@@ -456,9 +461,13 @@ export default function MiPerfil() {
                   <Card className="shadow-card border-purple-200">
                     <CardHeader>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                          <Users className="w-6 h-6 text-purple-600" />
-                        </div>
+                        {acompanante.fotoUrl ? (
+                          <img src={acompanante.fotoUrl} alt={acompanante.nombre} className="w-10 h-10 rounded-full object-cover border-2 border-purple-400" />
+                        ) : (
+                          <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                            <Users className="w-6 h-6 text-purple-600" />
+                          </div>
+                        )}
                         <div>
                           <CardTitle>Acompañante</CardTitle>
                           <CardDescription>

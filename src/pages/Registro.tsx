@@ -22,6 +22,7 @@ export default function Registro() {
   const [usuarioId, setUsuarioId] = useState<number | null>(null);
   const [validandoNumero, setValidandoNumero] = useState(false);
   const [numeroValido, setNumeroValido] = useState<boolean | null>(null);
+  const [numeroYaRegistrado, setNumeroYaRegistrado] = useState(false);
   const [datosEmpleado, setDatosEmpleado] = useState<{ sucursal: string; puesto: string } | null>(null);
   const [registrarAcompanante, setRegistrarAcompanante] = useState(false);
   const [aceptoPrivacidad, setAceptoPrivacidad] = useState(false);
@@ -47,6 +48,7 @@ export default function Registro() {
     const validarNumero = async () => {
       if (!formData.numeroEmpleado || formData.numeroEmpleado.length < 3) {
         setNumeroValido(null);
+        setNumeroYaRegistrado(false);
         setDatosEmpleado(null);
         return;
       }
@@ -59,14 +61,21 @@ export default function Registro() {
 
         if (data.success && data.valido) {
           setNumeroValido(true);
+          setNumeroYaRegistrado(false);
           setDatosEmpleado(data.data);
+        } else if (data.yaRegistrado) {
+          setNumeroValido(false);
+          setNumeroYaRegistrado(true);
+          setDatosEmpleado(null);
         } else {
           setNumeroValido(false);
+          setNumeroYaRegistrado(false);
           setDatosEmpleado(null);
         }
       } catch (error) {
         console.error('Error validando número:', error);
         setNumeroValido(false);
+        setNumeroYaRegistrado(false);
         setDatosEmpleado(null);
       } finally {
         setValidandoNumero(false);
@@ -304,7 +313,10 @@ export default function Registro() {
                         <p><strong>Puesto:</strong> {datosEmpleado.puesto}</p>
                       </div>
                     )}
-                    {numeroValido === false && (
+                    {numeroValido === false && numeroYaRegistrado && (
+                      <p className="text-sm text-red-500">Este número de empleado ya fue registrado</p>
+                    )}
+                    {numeroValido === false && !numeroYaRegistrado && (
                       <p className="text-sm text-red-500">Número de empleado no válido</p>
                     )}
                   </div>
@@ -355,7 +367,7 @@ export default function Registro() {
                         htmlFor="registrarAcompanante"
                         className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                       >
-                        ¿Deseas registrar a un acompañante?
+                        Registra tu acompañante <span className="text-red-500">*</span>
                       </Label>
                       <p className="text-sm text-muted-foreground">
                         Los puntos que gane tu acompañante sumarán a tu cuenta
@@ -387,7 +399,7 @@ export default function Registro() {
                       type="submit"
                       className="w-full"
                       size="lg"
-                      disabled={numeroValido !== true || !aceptoPrivacidad}
+                      disabled={numeroValido !== true || !aceptoPrivacidad || !registrarAcompanante}
                     >
                       Continuar →
                     </Button>
@@ -596,7 +608,7 @@ export default function Registro() {
                       </Button>
 
                       <Button
-                        onClick={() => navigate('/concurso/NAV2024')}
+                        onClick={() => navigate('/concurso/PRIMEROS100')}
                         variant="outline"
                         className="w-full"
                       >
