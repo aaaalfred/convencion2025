@@ -19,9 +19,14 @@ interface Usuario {
   numeroEmpleado: string | null;
   totalPuntos: number;
   fechaRegistro: string;
-  esAcompanante: boolean;
   totalConcursos: number;
   totalTrivias: number;
+  acompanante: {
+    id: number;
+    nombre: string;
+    concursos: number;
+    trivias: number;
+  } | null;
 }
 
 interface HistorialItem {
@@ -253,12 +258,17 @@ export default function AuditoriaParticipantes() {
                             <div>
                               <div className="font-medium flex items-center gap-2">
                                 {usuario.nombre}
-                                {usuario.esAcompanante && (
-                                  <Badge variant="outline" className="text-xs">Acompañante</Badge>
+                                {usuario.acompanante && (
+                                  <Badge variant="outline" className="text-xs bg-orange-50 text-orange-600 border-orange-200">
+                                    +1 acomp.
+                                  </Badge>
                                 )}
                               </div>
                               {usuario.email && (
                                 <div className="text-sm text-gray-500">{usuario.email}</div>
+                              )}
+                              {usuario.acompanante && (
+                                <div className="text-xs text-orange-600">{usuario.acompanante.nombre}</div>
                               )}
                             </div>
                           </TableCell>
@@ -270,15 +280,31 @@ export default function AuditoriaParticipantes() {
                             )}
                           </TableCell>
                           <TableCell className="text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Target className="w-4 h-4 text-blue-500" />
-                              <span>{usuario.totalConcursos}</span>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="flex items-center gap-1">
+                                <Target className="w-4 h-4 text-blue-500" />
+                                <span>{usuario.totalConcursos}</span>
+                              </div>
+                              {usuario.acompanante && usuario.acompanante.concursos > 0 && (
+                                <div className="flex items-center gap-1 text-xs text-orange-600">
+                                  <Users className="w-3 h-3" />
+                                  <span>+{usuario.acompanante.concursos}</span>
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Award className="w-4 h-4 text-purple-500" />
-                              <span>{usuario.totalTrivias}</span>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="flex items-center gap-1">
+                                <Award className="w-4 h-4 text-purple-500" />
+                                <span>{usuario.totalTrivias}</span>
+                              </div>
+                              {usuario.acompanante && usuario.acompanante.trivias > 0 && (
+                                <div className="flex items-center gap-1 text-xs text-orange-600">
+                                  <Users className="w-3 h-3" />
+                                  <span>+{usuario.acompanante.trivias}</span>
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="text-right">

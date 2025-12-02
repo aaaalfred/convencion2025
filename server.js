@@ -1155,6 +1155,7 @@ app.get('/api/trivias/:id/participantes', asyncHandler(async (req, res) => {
 // GET /api/auditoria/usuarios
 // ============================================
 app.get('/api/auditoria/usuarios', asyncHandler(async (req, res) => {
+  // Solo usuarios principales (no acompañantes)
   const [usuarios] = await pool.query(
     `SELECT
       u.id,
@@ -1163,27 +1164,58 @@ app.get('/api/auditoria/usuarios', asyncHandler(async (req, res) => {
       u.numero_empleado,
       u.total_puntos,
       u.fecha_registro,
-      u.es_acompanante,
       (SELECT COUNT(*) FROM participaciones WHERE usuario_id = u.id) as total_concursos,
-      (SELECT COUNT(*) FROM respuestas_usuarios WHERE usuario_id = u.id) as total_trivias
+      (SELECT COUNT(*) FROM respuestas_usuarios WHERE usuario_id = u.id) as total_trivias,
+      (SELECT ua.id FROM acompanantes a
+       INNER JOIN usuarios ua ON a.usuario_acompanante_id = ua.id
+       WHERE a.usuario_principal_id = u.id LIMIT 1) as acompanante_id,
+      (SELECT ua.nombre FROM acompanantes a
+       INNER JOIN usuarios ua ON a.usuario_acompanante_id = ua.id
+       WHERE a.usuario_principal_id = u.id LIMIT 1) as acompanante_nombre
      FROM usuarios u
-     WHERE u.activo = 1
+     WHERE u.activo = 1 AND u.es_acompanante = 0
      ORDER BY u.total_puntos DESC`
   );
 
-  res.json({
-    success: true,
-    data: usuarios.map(u => ({
+  // Para cada usuario con acompañante, obtener sus participaciones
+  const usuariosConAcompanante = await Promise.all(usuarios.map(async (u) => {
+    let concursosAcompanante = 0;
+    let triviasAcompanante = 0;
+
+    if (u.acompanante_id) {
+      const [[countConcursos]] = await pool.query(
+        'SELECT COUNT(*) as count FROM participaciones WHERE usuario_id = ?',
+        [u.acompanante_id]
+      );
+      const [[countTrivias]] = await pool.query(
+        'SELECT COUNT(*) as count FROM respuestas_usuarios WHERE usuario_id = ?',
+        [u.acompanante_id]
+      );
+      concursosAcompanante = countConcursos.count;
+      triviasAcompanante = countTrivias.count;
+    }
+
+    return {
       id: u.id,
       nombre: u.nombre,
       email: u.email,
       numeroEmpleado: u.numero_empleado,
       totalPuntos: parseInt(u.total_puntos) || 0,
       fechaRegistro: u.fecha_registro,
-      esAcompanante: u.es_acompanante === 1,
       totalConcursos: parseInt(u.total_concursos) || 0,
-      totalTrivias: parseInt(u.total_trivias) || 0
-    })),
+      totalTrivias: parseInt(u.total_trivias) || 0,
+      acompanante: u.acompanante_id ? {
+        id: u.acompanante_id,
+        nombre: u.acompanante_nombre,
+        concursos: concursosAcompanante,
+        trivias: triviasAcompanante
+      } : null
+    };
+  }));
+
+  res.json({
+    success: true,
+    data: usuariosConAcompanante,
     totalUsuarios: usuarios.length
   });
 }));
@@ -1310,22 +1342,54 @@ app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) =
 app.get('/api/ranking', asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 50; // Default: top 50
 
-  // Obtener ranking de usuarios ordenados por puntos
+  // Obtener ranking de usuarios principales (sin acompañantes) ordenados por puntos
   const [ranking] = await pool.query(
     `SELECT
-      id,
-      nombre,
-      total_puntos,
-      fecha_registro,
-      (SELECT COUNT(*) FROM participaciones WHERE usuario_id = usuarios.id) as total_participaciones
-     FROM usuarios
-     WHERE activo = 1 AND total_puntos > 0
-     ORDER BY total_puntos DESC, fecha_registro ASC
+      u.id,
+      u.nombre,
+      u.total_puntos,
+      u.fecha_registro,
+      (SELECT COUNT(*) FROM participaciones WHERE usuario_id = u.id) as total_concursos,
+      (SELECT COUNT(*) FROM respuestas_usuarios WHERE usuario_id = u.id) as total_trivias,
+      (SELECT ua.id FROM acompanantes a
+       INNER JOIN usuarios ua ON a.usuario_acompanante_id = ua.id
+       WHERE a.usuario_principal_id = u.id LIMIT 1) as acompanante_id,
+      (SELECT ua.nombre FROM acompanantes a
+       INNER JOIN usuarios ua ON a.usuario_acompanante_id = ua.id
+       WHERE a.usuario_principal_id = u.id LIMIT 1) as acompanante_nombre
+     FROM usuarios u
+     WHERE u.activo = 1 AND u.total_puntos > 0 AND u.es_acompanante = 0
+     ORDER BY u.total_puntos DESC, u.fecha_registro ASC
      LIMIT ?`,
     [limit]
   );
 
-  // Obtener estadísticas generales
+  // Para cada usuario con acompañante, obtener sus participaciones
+  const rankingConAcompanante = await Promise.all(ranking.map(async (u) => {
+    let concursosAcompanante = 0;
+    let triviasAcompanante = 0;
+
+    if (u.acompanante_id) {
+      const [[countConcursos]] = await pool.query(
+        'SELECT COUNT(*) as count FROM participaciones WHERE usuario_id = ?',
+        [u.acompanante_id]
+      );
+      const [[countTrivias]] = await pool.query(
+        'SELECT COUNT(*) as count FROM respuestas_usuarios WHERE usuario_id = ?',
+        [u.acompanante_id]
+      );
+      concursosAcompanante = countConcursos.count;
+      triviasAcompanante = countTrivias.count;
+    }
+
+    return {
+      ...u,
+      concursosAcompanante,
+      triviasAcompanante
+    };
+  }));
+
+  // Obtener estadísticas generales (solo usuarios principales)
   const [stats] = await pool.query(
     `SELECT
       COUNT(*) as total_usuarios,
@@ -1333,19 +1397,26 @@ app.get('/api/ranking', asyncHandler(async (req, res) => {
       AVG(total_puntos) as promedio_puntos,
       MAX(total_puntos) as max_puntos
      FROM usuarios
-     WHERE activo = 1`
+     WHERE activo = 1 AND es_acompanante = 0`
   );
 
   res.status(200).json({
     success: true,
     data: {
-      ranking: ranking.map((usuario, index) => ({
+      ranking: rankingConAcompanante.map((usuario, index) => ({
         posicion: index + 1,
         id: usuario.id,
         nombre: usuario.nombre,
         puntos: usuario.total_puntos,
-        participaciones: usuario.total_participaciones,
-        fechaRegistro: usuario.fecha_registro
+        totalConcursos: usuario.total_concursos,
+        totalTrivias: usuario.total_trivias,
+        fechaRegistro: usuario.fecha_registro,
+        acompanante: usuario.acompanante_id ? {
+          id: usuario.acompanante_id,
+          nombre: usuario.acompanante_nombre,
+          concursos: usuario.concursosAcompanante,
+          trivias: usuario.triviasAcompanante
+        } : null
       })),
       estadisticas: {
         totalUsuarios: stats[0].total_usuarios,

@@ -3,7 +3,10 @@ import { Header } from '@/components/shared/Header';
 import { Footer } from '@/components/shared/Footer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Trophy, Medal, Award, Users, TrendingUp, Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Trophy, Medal, Award, Users, TrendingUp, Clock, Eye, Target, CheckCircle, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/api-config';
 
@@ -12,8 +15,44 @@ interface RankingUsuario {
   id: number;
   nombre: string;
   puntos: number;
-  participaciones: number;
+  totalConcursos: number;
+  totalTrivias: number;
   fechaRegistro: string;
+  acompanante: {
+    id: number;
+    nombre: string;
+    concursos: number;
+    trivias: number;
+  } | null;
+}
+
+interface HistorialItem {
+  id: number;
+  evento: string;
+  codigo: string;
+  puntos: number;
+  tipo: 'concurso' | 'trivia';
+  esCorrecta?: boolean;
+  esAcompanante?: boolean;
+  nombreParticipante?: string;
+  fecha: string;
+  hora: string;
+}
+
+interface UsuarioDetalle {
+  usuario: {
+    id: number;
+    nombre: string;
+    totalPuntos: number;
+  };
+  resumen: {
+    totalPuntos: number;
+    puntosConcursos: number;
+    puntosTrivias: number;
+    totalConcursos: number;
+    totalTrivias: number;
+  };
+  historial: HistorialItem[];
 }
 
 interface Estadisticas {
@@ -33,7 +72,33 @@ export default function Ranking() {
   const [data, setData] = useState<RankingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedUsuario, setSelectedUsuario] = useState<UsuarioDetalle | null>(null);
+  const [loadingDetalle, setLoadingDetalle] = useState(false);
+
+  const verDetalle = async (usuarioId: number) => {
+    setLoadingDetalle(true);
+    setSelectedUsuario(null);
+    setDialogOpen(true);
+
+    try {
+      const response = await fetch(apiUrl(`/api/auditoria/usuarios/${usuarioId}/historial`));
+      const data = await response.json();
+
+      if (data.success) {
+        setSelectedUsuario(data.data);
+      } else {
+        toast.error(data.error || 'Error al cargar historial');
+        setDialogOpen(false);
+      }
+    } catch {
+      toast.error('Error al cargar el historial');
+      setDialogOpen(false);
+    } finally {
+      setLoadingDetalle(false);
+    }
+  };
 
   const fetchRanking = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -245,12 +310,31 @@ export default function Ranking() {
 
                           {/* Nombre */}
                           <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-lg truncate">
+                            <div className="font-semibold text-lg truncate flex items-center gap-2">
                               {usuario.nombre}
+                              {usuario.acompanante && (
+                                <Badge variant="outline" className="text-xs bg-orange-50 text-orange-600 border-orange-200">
+                                  +1 acomp.
+                                </Badge>
+                              )}
                             </div>
-                            <div className="text-sm text-gray-500 flex items-center gap-3">
-                              <span>
-                                {usuario.participaciones} {usuario.participaciones === 1 ? 'concurso' : 'concursos'}
+                            {usuario.acompanante && (
+                              <div className="text-xs text-orange-600">{usuario.acompanante.nombre}</div>
+                            )}
+                            <div className="text-sm text-gray-500 flex items-center gap-3 flex-wrap">
+                              <span className="flex items-center gap-1">
+                                <Target className="w-3 h-3 text-blue-500" />
+                                {usuario.totalConcursos}
+                                {usuario.acompanante && usuario.acompanante.concursos > 0 && (
+                                  <span className="text-orange-600">+{usuario.acompanante.concursos}</span>
+                                )}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Award className="w-3 h-3 text-purple-500" />
+                                {usuario.totalTrivias}
+                                {usuario.acompanante && usuario.acompanante.trivias > 0 && (
+                                  <span className="text-orange-600">+{usuario.acompanante.trivias}</span>
+                                )}
                               </span>
                               <span className="text-xs">
                                 Desde {formatDate(usuario.fechaRegistro)}
@@ -265,6 +349,16 @@ export default function Ranking() {
                             </div>
                             <div className="text-xs text-gray-500">puntos</div>
                           </div>
+
+                          {/* Botón ver detalle */}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => verDetalle(usuario.id)}
+                            title="Ver historial"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
                         </div>
                       ))
                     )}
@@ -276,6 +370,132 @@ export default function Ranking() {
           </div>
         </div>
       </div>
+
+      {/* Modal de historial */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-yellow-500" />
+              Historial de Participaciones
+            </DialogTitle>
+          </DialogHeader>
+
+          {loadingDetalle ? (
+            <div className="py-8 text-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+              <p className="text-gray-600">Cargando historial...</p>
+            </div>
+          ) : selectedUsuario && (
+            <div className="space-y-4">
+              {/* Info usuario */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold text-lg">{selectedUsuario.usuario.nombre}</h3>
+                <div className="grid grid-cols-3 gap-4 mt-3">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">
+                      {selectedUsuario.resumen.totalPuntos}
+                    </div>
+                    <div className="text-xs text-gray-500">Puntos Totales</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {selectedUsuario.resumen.puntosConcursos}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      De {selectedUsuario.resumen.totalConcursos} concursos
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-purple-600">
+                      {selectedUsuario.resumen.puntosTrivias}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      De {selectedUsuario.resumen.totalTrivias} trivias
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Historial */}
+              <div>
+                <h4 className="font-semibold mb-3">Detalle de Participaciones</h4>
+                {selectedUsuario.historial.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Evento</TableHead>
+                        <TableHead>Participante</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead className="text-right">Puntos</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedUsuario.historial.map((item) => (
+                        <TableRow key={`${item.tipo}-${item.id}`}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{item.evento}</div>
+                              <div className="text-xs text-gray-500">{item.codigo}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <span className={item.esAcompanante ? 'text-orange-600' : ''}>
+                                {item.nombreParticipante || selectedUsuario.usuario.nombre}
+                              </span>
+                              {item.esAcompanante && (
+                                <Badge variant="outline" className="text-xs bg-orange-50 text-orange-600 border-orange-200">
+                                  Acompañante
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {item.tipo === 'concurso' ? (
+                              <Badge variant="outline" className="bg-blue-50">
+                                <Target className="w-3 h-3 mr-1" />
+                                Concurso
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant={item.esCorrecta ? 'default' : 'destructive'}
+                                className={item.esCorrecta ? 'bg-purple-600' : ''}
+                              >
+                                {item.esCorrecta ? (
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                ) : (
+                                  <XCircle className="w-3 h-3 mr-1" />
+                                )}
+                                Trivia
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-gray-600">
+                            {item.fecha} {item.hora}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className={`font-semibold ${
+                              item.puntos > 0 ? 'text-green-600' : 'text-gray-400'
+                            }`}>
+                              {item.puntos > 0 ? `+${item.puntos}` : '0'}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-center text-gray-500 py-4">
+                    Este usuario no tiene participaciones registradas
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Footer />
     </div>
