@@ -31,6 +31,8 @@ interface HistorialItem {
   puntos: number;
   tipo: 'concurso' | 'trivia';
   esCorrecta?: boolean;
+  esAcompanante?: boolean;
+  nombreParticipante?: string;
   fecha: string;
   hora: string;
 }
@@ -378,6 +380,7 @@ export default function AuditoriaParticipantes() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Evento</TableHead>
+                        <TableHead>Participante</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead>Fecha</TableHead>
                         <TableHead className="text-right">Puntos</TableHead>
@@ -390,6 +393,18 @@ export default function AuditoriaParticipantes() {
                             <div>
                               <div className="font-medium">{item.evento}</div>
                               <div className="text-xs text-gray-500">{item.codigo}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <span className={item.esAcompanante ? 'text-orange-600' : ''}>
+                                {item.nombreParticipante || selectedUsuario.usuario.nombre}
+                              </span>
+                              {item.esAcompanante && (
+                                <Badge variant="outline" className="text-xs bg-orange-50 text-orange-600 border-orange-200">
+                                  Acompañante
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>

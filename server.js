@@ -1210,10 +1210,24 @@ app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) =
 
   const usuario = usuarios[0];
 
+  // Buscar si tiene acompañante
+  const [acompanantes] = await pool.query(
+    `SELECT u.id, u.nombre
+     FROM acompanantes a
+     INNER JOIN usuarios u ON a.usuario_acompanante_id = u.id
+     WHERE a.usuario_principal_id = ?`,
+    [id]
+  );
+  const acompanante = acompanantes.length > 0 ? acompanantes[0] : null;
+
+  // IDs a buscar (usuario principal + acompañante si existe)
+  const idsUsuarios = acompanante ? [id, acompanante.id] : [id];
+
   // Obtener participaciones en concursos
   const [concursos] = await pool.query(
     `SELECT
       p.id,
+      p.usuario_id,
       c.nombre as evento,
       c.codigo_unico as codigo,
       p.puntos_ganados as puntos,
@@ -1221,14 +1235,15 @@ app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) =
       'concurso' as tipo
      FROM participaciones p
      INNER JOIN concursos c ON p.concurso_id = c.id
-     WHERE p.usuario_id = ?`,
-    [id]
+     WHERE p.usuario_id IN (?)`,
+    [idsUsuarios]
   );
 
   // Obtener participaciones en trivias
   const [trivias] = await pool.query(
     `SELECT
       r.id,
+      r.usuario_id,
       t.nombre as evento,
       CONCAT('TRIVIA-', t.id) as codigo,
       r.puntos_ganados as puntos,
@@ -1237,8 +1252,8 @@ app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) =
       r.es_correcta
      FROM respuestas_usuarios r
      INNER JOIN trivias t ON r.trivia_id = t.id
-     WHERE r.usuario_id = ?`,
-    [id]
+     WHERE r.usuario_id IN (?)`,
+    [idsUsuarios]
   );
 
   // Combinar y ordenar
@@ -1251,6 +1266,8 @@ app.get('/api/auditoria/usuarios/:id/historial', asyncHandler(async (req, res) =
       puntos: parseInt(h.puntos) || 0,
       tipo: h.tipo,
       esCorrecta: h.es_correcta === 1,
+      esAcompanante: acompanante && h.usuario_id === acompanante.id,
+      nombreParticipante: acompanante && h.usuario_id === acompanante.id ? acompanante.nombre : usuario.nombre,
       fecha: new Date(h.fecha).toLocaleDateString('es-MX', {
         year: 'numeric', month: 'short', day: 'numeric'
       }),
