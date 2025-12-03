@@ -412,7 +412,7 @@ export default function MiPerfil() {
                                 variant={participacion.tipo === 'trivia' ? 'default' : 'outline'}
                                 className={`text-xs ${participacion.tipo === 'trivia' ? 'bg-purple-600' : ''}`}
                               >
-                                {participacion.tipo === 'trivia' ? '🎯 TRIVIA' : participacion.codigo}
+                                {participacion.tipo === 'trivia' ? '🎯 TRIVIA' : participacion.codigo.replace(/_\d+$/, '')}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-sm text-gray-600">

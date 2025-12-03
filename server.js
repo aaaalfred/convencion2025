@@ -487,6 +487,113 @@ app.post('/api/concursos/:codigo/participar', asyncHandler(async (req, res) => {
   }
 
   try {
+    // Concursos especiales hardcodeados (no requieren DB)
+    const concursosEspeciales = {
+      'PUNTOS1000': 1000,
+      'PUNTOS500': 500,
+      'PUNTOS400': 400,
+      'PUNTOS300': 300,
+      'PUNTOS200': 200
+    };
+
+    if (concursosEspeciales[codigo]) {
+      const puntosOtorgados = concursosEspeciales[codigo];
+      const imageBuffer = base64ToBuffer(foto);
+      const searchResult = await awsRekognition.searchFace(imageBuffer);
+
+      if (!searchResult.found) {
+        return res.status(404).json({
+          success: false,
+          tipo: 'no-registrado',
+          mensaje: 'No te reconocemos. ¿Es tu primera vez?',
+          error: 'Usuario no registrado'
+        });
+      }
+
+      const { faceId, similarity } = searchResult;
+
+      // Obtener usuario
+      const [usuarios] = await pool.query(
+        'SELECT id, nombre, total_puntos FROM usuarios WHERE rekognition_face_id = ?',
+        [faceId]
+      );
+
+      if (usuarios.length === 0) {
+        return res.status(404).json({
+          success: false,
+          tipo: 'no-registrado',
+          mensaje: 'Usuario no encontrado en la base de datos'
+        });
+      }
+
+      const usuario = usuarios[0];
+
+      // Crear un concurso único para cada participación (con timestamp)
+      const fechaMexico = new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' });
+      const fechaParticipacion = new Date(fechaMexico);
+      const timestamp = Date.now();
+      const codigoUnico = `${codigo}_${timestamp}`;
+      const nombreConcurso = `Bono ${puntosOtorgados} Puntos`;
+
+      // Crear entrada de concurso única para esta participación
+      await pool.query(
+        `INSERT INTO concursos (nombre, codigo_unico, descripcion, puntos_otorgados, participacion_unica, activo)
+         VALUES (?, ?, ?, ?, 1, 1)`,
+        [nombreConcurso, codigoUnico, `Bono de ${puntosOtorgados} puntos - ${fechaParticipacion.toLocaleString('es-MX')}`, puntosOtorgados]
+      );
+
+      const [[concursoCreado]] = await pool.query(
+        'SELECT id FROM concursos WHERE codigo_unico = ?',
+        [codigoUnico]
+      );
+
+      // Registrar participación individual
+      await pool.query(
+        `INSERT INTO participaciones (usuario_id, concurso_id, puntos_ganados, confidence_score, fecha_participacion)
+         VALUES (?, ?, ?, ?, ?)`,
+        [usuario.id, concursoCreado.id, puntosOtorgados, similarity, fechaParticipacion]
+      );
+
+      // Actualizar puntos del usuario
+      const nuevoTotal = parseInt(usuario.total_puntos) + puntosOtorgados;
+      await pool.query(
+        'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
+        [nuevoTotal, usuario.id]
+      );
+
+      // Si es acompañante, también sumar al principal
+      const [esAcompanante] = await pool.query(
+        `SELECT a.usuario_principal_id, u.total_puntos as puntos_principal
+         FROM acompanantes a
+         INNER JOIN usuarios u ON a.usuario_principal_id = u.id
+         WHERE a.usuario_acompanante_id = ?`,
+        [usuario.id]
+      );
+
+      if (esAcompanante.length > 0) {
+        const principal = esAcompanante[0];
+        const nuevoTotalPrincipal = principal.puntos_principal + puntosOtorgados;
+        await pool.query(
+          'UPDATE usuarios SET total_puntos = ? WHERE id = ?',
+          [nuevoTotalPrincipal, principal.usuario_principal_id]
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        tipo: 'exito',
+        mensaje: `¡Felicidades ${usuario.nombre}! Has ganado ${puntosOtorgados} puntos`,
+        data: {
+          puntosGanados: puntosOtorgados,
+          similarity: similarity,
+          usuario: {
+            nombre: usuario.nombre,
+            totalPuntos: nuevoTotal
+          }
+        }
+      });
+    }
+
     // 1. Verificar que el concurso existe y está activo
     const [concursos] = await pool.query(
       'SELECT id, nombre, puntos_otorgados, participacion_unica FROM concursos WHERE codigo_unico = ? AND activo = 1',
@@ -957,6 +1064,30 @@ app.post('/api/usuarios/perfil', asyncHandler(async (req, res) => {
 // ============================================
 app.get('/api/concursos/:codigo', asyncHandler(async (req, res) => {
   const { codigo } = req.params;
+
+  // Concursos especiales hardcodeados (no requieren DB)
+  const concursosEspeciales = {
+    'PUNTOS1000': { puntos: 1000, nombre: 'Bono Especial 1000 Puntos' },
+    'PUNTOS500': { puntos: 500, nombre: 'Bono Especial 500 Puntos' },
+    'PUNTOS400': { puntos: 400, nombre: 'Bono Especial 400 Puntos' },
+    'PUNTOS300': { puntos: 300, nombre: 'Bono Especial 300 Puntos' },
+    'PUNTOS200': { puntos: 200, nombre: 'Bono Especial 200 Puntos' }
+  };
+
+  if (concursosEspeciales[codigo]) {
+    const especial = concursosEspeciales[codigo];
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: 0,
+        nombre: especial.nombre,
+        codigo_unico: codigo,
+        descripcion: `Valida tu identidad con reconocimiento facial y obtén ${especial.puntos} puntos de bonificación.`,
+        puntos_otorgados: especial.puntos,
+        activo: 1
+      }
+    });
+  }
 
   const [concursos] = await pool.query(
     'SELECT id, nombre, codigo_unico, descripcion, puntos_otorgados, activo FROM concursos WHERE codigo_unico = ?',
