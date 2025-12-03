@@ -104,7 +104,7 @@ export default function Ranking() {
     if (!silent) setLoading(true);
 
     try {
-      const response = await fetch(apiUrl('/api/ranking?limit=50'));
+      const response = await fetch(apiUrl('/api/ranking?limit=100'));
       const result = await response.json();
 
       if (result.success) {
